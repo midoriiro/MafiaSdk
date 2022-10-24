@@ -49,14 +49,16 @@ namespace Core.IO.FileFormats.SDS
 
         public static MemoryStream? Unwrap(Stream input)
         {
-            var output = new MemoryStream();
-            if (Unwrap(input, output))
+            using var stream = new MemoryStream();
+
+            if (!Unwrap(input, stream))
             {
-                output.Position = 0;
-                return output;
+                return null;
             }
-            output.Dispose();
-            return null;
+
+            stream.Position = 0;
+            return stream;
+
         }
 
         public static bool Unwrap(Stream input, Stream output)

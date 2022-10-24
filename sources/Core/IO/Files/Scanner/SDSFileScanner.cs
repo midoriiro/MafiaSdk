@@ -8,24 +8,40 @@ public sealed class SDSFileScanner
     public static ImmutableList<SDSFile> Scan(string path)
     {
         var root = new DirectoryInfo(path);
-        return ScanDirectories(root).ToImmutableList();
+        List<SDSFile> files = new ();
+        ScanDirectories(root, files);
+        return files.ToImmutableList();
     }
 
-    private static IEnumerable<SDSFile> ScanDirectories(DirectoryInfo directoryInfo)
+    private static void ScanDirectories(DirectoryInfo directoryInfo, List<SDSFile> files)
     {
-        return directoryInfo
-            .GetDirectories()
-            .SelectMany(ScanFiles)
-            .ToList()
-            .Concat(ScanFiles(directoryInfo));
+        var directories = directoryInfo.GetDirectories();
+
+        if (directories.Length > 0)
+        {
+            foreach (DirectoryInfo directory in directories)
+            {
+                ScanDirectories(directory, files);
+            }
+        }
+
+        ScanFiles(directoryInfo, files);
     }
 
-    private static IEnumerable<SDSFile> ScanFiles(DirectoryInfo node)
+    private static void ScanFiles(DirectoryInfo node, List<SDSFile> files)
     {
         var directory = new Lazy<Directory>(() => new Directory(node));
 
-        return node
+        var scannedFiles = node
             .GetFiles("*.sds")
-            .Select(fileInfo => new SDSFile(fileInfo, directory.Value));
+            .Select(fileInfo => new SDSFile(fileInfo, directory.Value))
+            .ToList();
+
+        if (scannedFiles.Count == 0)
+        {
+            return;
+        }
+        
+        files.AddRange(scannedFiles);
     }
 }

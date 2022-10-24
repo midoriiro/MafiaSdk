@@ -104,7 +104,7 @@ public static class DllLoader
 		// Get a temporary directory in which we can store the unmanaged DLL, with
 		// this assembly's version number in the path in order to avoid version
 		// conflicts in case two applications are running at once with different versions
-		string directory = Path.Combine(Path.GetTempPath(), "zlibnet-zlib" + ZLibDll.ZLibDllFileVersion);
+		string directory = Path.Join(Path.GetTempPath(), "zlibnet-zlib" + ZLibDll.ZLibDllFileVersion);
 
 		try
 		{
@@ -123,7 +123,7 @@ public static class DllLoader
 		}
 
 		string dllName = ZLibDll.GetDllName();
-		string dllFullName = Path.Combine(directory, dllName);
+		string dllFullName = Path.Join(directory, dllName);
 
 		// Get the embedded resource stream that holds the Internal DLL in this assembly.
 		// The name looks funny because it must be the default namespace of this project

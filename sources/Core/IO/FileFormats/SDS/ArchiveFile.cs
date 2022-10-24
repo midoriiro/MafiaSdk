@@ -31,18 +31,18 @@ namespace Core.IO.FileFormats.SDS
     {
         public const uint Signature = 0x53445300; // 'SDS\0'
 
-        private Endian Endian { get; set; }
-        private uint Version { get; set; }
-        private Platform Platform { get; set; }
-        private uint SlotRamRequired { get; set; }
-        private uint SlotVramRequired { get; set; }
-        private uint OtherRamRequired { get; set; }
-        private uint OtherVramRequired { get; set; }
-        private byte[]? Unknown20 { get; set; }
-        private string? ResourceInfoXml { get; set; }
-        private List<ResourceType> ResourceTypes { get; }
-        private List<ResourceEntry> ResourceEntries { get; }
-        private List<string> ResourceNames { get; }
+        public Endian Endian { get; set; }
+        public uint Version { get; set; }
+        public Platform Platform { get; set; }
+        public uint SlotRamRequired { get; set; }
+        public uint SlotVramRequired { get; set; }
+        public uint OtherRamRequired { get; set; }
+        public uint OtherVramRequired { get; set; }
+        public byte[]? Unknown20 { get; set; }
+        public string? ResourceInfoXml { get; set; }
+        public List<ResourceType> ResourceTypes { get; }
+        public List<ResourceEntry> ResourceEntries { get; }
+        public List<string> ResourceNames { get; }
         
         public ArchiveFile()
         {

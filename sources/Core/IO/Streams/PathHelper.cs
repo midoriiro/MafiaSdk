@@ -83,6 +83,6 @@ public static class PathHelper
         }
 
         // create relative path
-        return Path.Combine(relativePath.ToArray());
+        return Path.Join(relativePath.ToArray());
     }
 }

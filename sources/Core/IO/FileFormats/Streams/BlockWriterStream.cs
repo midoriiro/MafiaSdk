@@ -238,9 +238,7 @@ public class BlockWriterStream : Stream
         compressedBlockHeader.ChunkSize = 1;
         compressedBlockHeader.Unknown0C = (uint)blockLength;
         compressedBlockHeader.Chunks[0] = (ushort)compressedBlockHeader.CompressedSize;
-            
-        Console.WriteLine(compressedBlockHeader); // TODO log this
-            
+
         compressedBlockHeader.Write(_baseStream,_endian);
         _baseStream.Write(new byte[96], 0, 96); // Empty padding.
         _baseStream.Write(data.GetBuffer(), 0, compressedLength);

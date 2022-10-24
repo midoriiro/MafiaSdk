@@ -5,7 +5,7 @@ namespace Core.IO.Files;
 
 public abstract class File
 {
-    private FileInfo FileInfo { get; }
+    public FileInfo FileInfo { get; }
     public Directory ParentDirectory { get; }
     public string Extension { get; }
 
@@ -37,6 +37,10 @@ public abstract class File
         int size = Extension.Length + 1;
         return FileInfo.Name.Remove(FileInfo.Name.Length - size, size);
     }
+
+    public abstract bool Open();
+
+    public abstract void Save();
 
     public void Delete()
     {
