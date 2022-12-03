@@ -1,81 +1,48 @@
-﻿using Core.IO.Streams;
+﻿using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
+using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
 
 // NOTE: Only supports M1: DE and M3 Cutscene formats.
 // This IS NOT for Mafia II. However it would be ideal if we could also support Mafia II.
+// TODO Mafia 2 support ?
 public class CutsceneResource : IResourceType<CutsceneResource>
 {
-    public class GcrResource
-    {
-        public string Name { get; set; }
-        public byte[] Content { get; set; }
-        
-        internal GcrResource()
-        {
-            Name = null!;
-            Content = null!;
-        }
-            
-        internal GcrResource(string name, byte[] content)
-        {
-            Name = name;
-            Content = content;
-        }
+    [IgnoreFieldDescriptor]
+    public int CutscenesCount => Cutscenes.Length;
 
-        public override string ToString()
-        {
-            return $"Name: {Name} Size: {Content.Length}";
-        }
-    }
-    
-    public GcrResource[] GcrEntityRecords { get; internal init; } = null!;
+    public CutsceneData[] Cutscenes { get; internal init; } = null!;
 
-    internal CutsceneResource()
+    private CutsceneResource()
     {
     }
 
     public void Serialize(ushort version, Stream stream, Endian endian)
     {
         stream.WriteValueU32(0, endian);
-        stream.WriteValueU32((uint)GcrEntityRecords.Length, endian);
+        stream.WriteValueU32((uint)Cutscenes.Length, endian);
 
-        foreach(GcrResource record in GcrEntityRecords)
+        foreach(CutsceneData cutsceneData in Cutscenes)
         {
-            string name = record.Name.Replace(".gcr", string.Empty);
-            stream.WriteStringU16(name, endian);
-            stream.WriteBytes(record.Content);
+            cutsceneData.Serialize(version, stream, endian);
         }
     }
 
     public static CutsceneResource Deserialize(ushort version, Stream stream, Endian endian)
     {
         stream.ReadValueU32(endian); // padding
-        uint index = stream.ReadValueU32(endian);
+        uint count = stream.ReadValueU32(endian);
 
-        var records = new GcrResource[index];
+        var cutsceneData = new CutsceneData[count];
 
-        for (var i = 0; i < index; i++)
+        for (var index = 0; index < cutsceneData.Length; index++)
         {
-            // deserialize name
-            string name = stream.ReadStringU16(endian);
-            name += ".gcr";
-
-            // get size and move back 8 bytes
-            stream.ReadValueU32(endian); // Unk01
-            int size = stream.ReadValueS32(endian); // Size includes these 4 bytes and Unk01
-
-            stream.Position -= 8;
-            byte[] content = stream.ReadBytes(size);
-
-            // Construct and store Entity record
-            var resource = new GcrResource(name, content);
-            records[i] = resource;
+            cutsceneData[index] = CutsceneData.Deserialize(version, stream, endian);
         }
 
-        return new CutsceneResource()
+        return new CutsceneResource
         {
-            GcrEntityRecords = records
+            Cutscenes = cutsceneData
         };
     }
 }

@@ -1,12 +1,13 @@
 ﻿using Core.IO.FileFormats.Hashing;
 using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
 
 public class GenericResource : IResourceType<GenericResource>
 {
-    private readonly Dictionary<ulong, string> _typeExtensionMagic = new Dictionary<ulong, string>()
+    private readonly Dictionary<ulong, string> _typeExtensionMagic = new()
     {
         { 0x15B770C22,  ".vi.compiled" },
         { 0xA53038C9,  ".flownode" },
@@ -43,7 +44,7 @@ public class GenericResource : IResourceType<GenericResource>
         //{ 0x45F07C8B, ".scene.gxml"  },
     };
 
-    private readonly Dictionary<string, ulong> _typeExtensionString = new Dictionary<string, ulong>()
+    private readonly Dictionary<string, ulong> _typeExtensionString = new()
     {
         { ".vi.compiled", 0x15B770C22 },
         { ".flownode", 0xA53038C9 },
@@ -84,30 +85,30 @@ public class GenericResource : IResourceType<GenericResource>
     public ulong GenericType { get; set; }
     public ushort Unk0 { get; set; }
     public string DebugName { get; set; } = null!;
+    [IgnoreFieldDescriptor]
     public byte[] Data { get; set; } = null!;
+
+    private GenericResource()
+    {
+    }
 
     public void Serialize(ushort version, Stream stream, Endian endian)
     {
-        GenericType = DetermineMagic(DebugName);
-
-        string tempName = string.IsNullOrEmpty(DebugName) ? "" : DebugName;
-
         stream.WriteValueU64(GenericType);
         stream.WriteValueU16(Unk0);
-        stream.WriteStringU16(tempName, endian);
+        stream.WriteStringU16(DebugName, endian);
         stream.WriteBytes(Data);
     }
 
-    public static GenericResource Deserialize(ushort version, Stream input, Endian endian)
+    public static GenericResource Deserialize(ushort version, Stream stream, Endian endian)
     {
-        ulong genericType = input.ReadValueU64();
-        ushort unk0 = input.ReadValueU16();
-        string debugName = input.ReadStringU16(endian);
+        ulong genericType = stream.ReadValueU64();
+        ushort unk0 = stream.ReadValueU16();
+        string debugName = stream.ReadStringU16(endian);
 
-        // We do not have any size so we do (FILE_LENGTH - CURRENT_POS);
-        byte[] data = input.ReadBytes((int)(input.Length - input.Position));
+        byte[] data = stream.ReadBytes((int)(stream.Length - stream.Position));
 
-        return new GenericResource()
+        return new GenericResource
         {
             GenericType = genericType,
             Unk0 = unk0,
@@ -116,122 +117,60 @@ public class GenericResource : IResourceType<GenericResource>
         };
     }
 
-    public ulong DetermineMagic(string name)
-    {
-        string extension = GetFullExtensionUtil(name);
-        ulong magic = 0;
-
-        bool hasFound = _typeExtensionString.ContainsKey(extension);
-
-        if(!hasFound)
-        {
-            hasFound = RecursiveExtensionCheck(ref extension);
-        }
-
-        if(hasFound)
-        {
-            magic = _typeExtensionString[extension];
-        }
-        else
-        {
-            // TODO log this
-            // MessageBox.Show("Detected an unknown extension!!! SDS will NOT work!", "Toolkit");
-        }
-
-        return magic;
-    }
-
+    // TODO make this method private and add resource name property ?
     public string DetermineName(ResourceEntry entry, string name)
     {
         var gotDebugName = false;
-
-        // Make sure we use the debug name.
+        
         if (!string.IsNullOrEmpty(DebugName))
         {
             name = DebugName;
             gotDebugName = true;
         }
-
-        // We found the name already
-        if(FNV64.Hash(name) == entry.FileHash)
+        
+        if(Fnv64.Hash(name) == entry.FileHash)
         {
-            name = ReplaceCurrentExtension(name);
             return name;
         }
-
-        // Our database tool has figured out this file name.
-        // Return.
-        // TODO: Consider an easier approach for this, maybe have a flag?
-        if (!name.Contains("File_") && !gotDebugName)
+        
+        if (!name.Contains("file_") && !gotDebugName)
         {
             string extension = GetFullExtensionUtil(name);
+            
             if(!_typeExtensionString.ContainsKey(extension))
             {
-                // TODO log this
-                // MessageBox.Show("Detected missing extension from DB. Please contract Greavesy with SDS name.", "Toolkit");
+                throw new InvalidOperationException($"Detected unknown extension '{extension}'");
             }
+            
             return name;
         }
 
+        // ReSharper disable once InvertIf
         if (!gotDebugName)
         {
             string withoutExtension = Path.GetFileNameWithoutExtension(name);
 
-            if(_typeExtensionMagic.ContainsKey(GenericType))
+            _typeExtensionMagic.TryGetValue(GenericType, out string? extension);
+
+            if(extension is not null)
             {
-                string extension = _typeExtensionMagic[GenericType];
                 withoutExtension += extension;
             }
             else 
             {
-                withoutExtension += ".genr";
-                // TODO log this
-                // MessageBox.Show("Detected an unknown GENR type. Please contract Greavesy with SDS name.", "Toolkit");
+                throw new InvalidOperationException($"Detected unknown extension '{name}:{GenericType:X}'");
             }
 
-            name = withoutExtension;
+            string? folder = Path.GetDirectoryName(name);
+            name = Path.Join(folder, withoutExtension);
         }
 
         return name;
-    }
-
-    private bool RecursiveExtensionCheck(ref string extension)
-    {
-        while(extension.LastIndexOf('.') != 0)
-        {
-            string removedDot = extension.Remove(0, 1);
-            extension = GetFullExtensionUtil(removedDot);
-
-            bool hasFound = _typeExtensionString.ContainsKey(extension);
-            
-            if(hasFound)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static string GetFullExtensionUtil(string fileName)
     {
         int extensionStart = fileName.IndexOf(".", StringComparison.Ordinal);
         return fileName[extensionStart..];
-    }
-
-    private string ReplaceCurrentExtension(string fileName)
-    {
-        string detectedExtension = _typeExtensionMagic[GenericType];
-        string extension = GetFullExtensionUtil(fileName);
-        int indexOfExtension = fileName.IndexOf(extension, StringComparison.Ordinal);
-
-        if (indexOfExtension == -1)
-        {
-            return fileName;
-        }
-
-        string newName = fileName.Remove(indexOfExtension);
-        newName += detectedExtension;
-        return newName;
     }
 }

@@ -20,21 +20,30 @@
  *    distribution.
  */
 
+using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
 
 public class TableResource : IResourceType<TableResource>
 {
-    public List<TableData> Tables { get; set; } = null!;
+    [IgnoreFieldDescriptor]
+    public int TablesCount => Tables.Length;
 
-    internal TableResource()
+    public TableData[] Tables { get; set; } = null!;
+
+    private TableResource()
     {
+    }
+
+    public uint GetDataLength()
+    {
+        return (uint)Tables.Sum(table => table.Data.Length);
     }
 
     public void Serialize(ushort version, Stream stream, Endian endian)
     {
-        stream.WriteValueU32((uint)Tables.Count);
+        stream.WriteValueU32((uint)Tables.Length);
         
         foreach (TableData table in Tables)
         {
@@ -46,15 +55,19 @@ public class TableResource : IResourceType<TableResource>
     {
         uint count = stream.ReadValueU32(endian);
 
-        var tables = new List<TableData>();
+        var tables = new TableData[count];
         
-        for (uint i = 0; i < count; i++)
+        for (uint index = 0; index < count; index++)
         {
-            TableData table = TableData.Deserialize(version, stream, endian);
-            tables.Add(table);
+            tables[index] = TableData.Deserialize(version, stream, endian);
         }
 
-        return new TableResource()
+        if (stream.Position != stream.Length)
+        {
+            throw new InvalidOperationException("There remain bytes to read"); // TODO find more accurate exception type and message
+        }
+
+        return new TableResource
         {
             Tables = tables
         };

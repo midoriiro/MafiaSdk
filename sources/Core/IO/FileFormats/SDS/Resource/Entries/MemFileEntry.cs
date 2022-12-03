@@ -24,9 +24,9 @@
 //SEE ORIGINAL CODE HERE::
 //https://github.com/gibbed/Gibbed.Illusion
 
-using System.Xml;
-using System.Xml.XPath;
 using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.FileFormats.SDS.Resource.Types;
 using Core.IO.Streams;
 
@@ -34,77 +34,84 @@ namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class MemFileEntry : IResourceEntry
 {
-    public static string Read(
-        ResourceEntry entry, 
-        XmlWriter writer, 
-        string name, 
-        string path, 
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
+        string name,
         Endian endian
     )
     {
-        MemFileResource resource;
-        
-        using (var stream = new MemoryStream(entry.Data!))
-        {
-            resource = MemFileResource.Deserialize(entry.Version, stream, endian);
-            entry.Data = resource.Data;
-        }
+        ManifestEntryDescriptors resourceDescriptors;
+        DataDescriptor dataDescriptor;
 
-        if (string.IsNullOrEmpty(name))
+        if (resourceEntry.Data!.Length > 0)
         {
+            MemFileResource resource;
+        
+            using (var stream = new MemoryStream(resourceEntry.Data!))
+            {
+                resource = MemFileResource.Deserialize(resourceEntry.Version, stream, endian);
+            }
+
             name = resource.Name;
+
+            resourceDescriptors = ManifestEntryDescriptors.FromResource(resource);
+            dataDescriptor = new DataDescriptor(name, resource.Data);
+        }
+        else
+        {
+            resourceDescriptors = ManifestEntryDescriptors.CreateEmpty();
+            dataDescriptor = new DataDescriptor(name, resourceEntry.Data);
         }
 
-        string pathToWrite = Path.Join(path, name);
-        Directory.CreateDirectory(Path.GetDirectoryName(pathToWrite)!);
-        
-        writer.WriteElementString("File", name);
-        writer.WriteElementString("Unk2_V4", resource.Unk2V4.ToString());
-        return name;
+        resourceDescriptors.AddFileName(name);
+
+        return new EntryDeserializeResult
+        {
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = new[] { dataDescriptor }
+        };
     }
 
-    public static ResourceEntry Write(
-        ResourceEntry entry, 
-        XPathNodeIterator nodes, 
-        XmlNode sourceDataDescriptionNode,
-        string path, 
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
+        string path,
         Endian endian
     )
     {
-        if (nodes.Current is null)
+        var resourceEntry = new ResourceEntry
         {
-            throw new NullReferenceException("Current node from node iterator is null");
-        }
-        
-        //get file name from XML.
-        nodes.Current.MoveToNext();
-        string file = nodes.Current.Value;
-        nodes.Current.MoveToNext();
-        var unk2 = Convert.ToUInt32(nodes.Current.Value);
-        nodes.Current.MoveToNext();
-        entry.Version = Convert.ToUInt16(nodes.Current.Value);
-
-        //construct MemResource.
-        var resource = new MemFileResource
-        {
-            Name = file,
-            Unk1 = 1,
-            Unk2V4 = unk2
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash // TODO compute that
         };
-
-        // Read all the data, then allocate memory required
-        string pathToRead = Path.Join(path, file);
-        resource.Data = File.ReadAllBytes(pathToRead);
-        entry.SlotRamRequired = (uint)resource.Data.Length;
-
-        //serialize.
-        using (var stream = new MemoryStream())
+        
+        string filename = manifestEntry.Descriptors.GetFilename()!;
+        ushort version = manifestEntry.MetaData.Version;
+        
+        string pathToRead = Path.Join(path, filename);
+        byte[] data = File.ReadAllBytes(pathToRead);
+        
+        if (manifestEntry.Descriptors.Descriptors.Count > 1)
         {
-            resource.Serialize(entry.Version, stream, Endian.Little);
-            entry.Data = stream.ToArray();
+            var resource = manifestEntry.Descriptors.ToResource<MemFileResource>();
+            resource.Data = data;
+
+            using var stream = new MemoryStream();
+            resource.Serialize(version, stream, endian);
+            resourceEntry.Data = stream.ToArray();
+        }
+        else
+        {
+            resourceEntry.Data = data;
         }
 
-        sourceDataDescriptionNode.InnerText = file;
-        return entry;
+        resourceEntry.SlotRamRequired = manifestEntry.MetaData.SlotRamRequired; // TODO find correct value
+        resourceEntry.OtherRamRequired = manifestEntry.MetaData.OtherRamRequired; // TODO find a solution to get correct value
+
+        return new EntrySerializeResult
+        {
+            DataDescriptor = filename,
+            ResourceEntry = resourceEntry
+        };
     }
 }

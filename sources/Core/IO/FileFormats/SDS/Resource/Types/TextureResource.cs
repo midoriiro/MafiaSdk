@@ -24,6 +24,7 @@
 //SEE ORIGINAL CODE HERE::
 //https://github.com/gibbed/Gibbed.Illusion
 
+using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
@@ -32,21 +33,22 @@ public class TextureResource : IResourceType<TextureResource>
 {
     public ulong NameHash { get; set; }
     public byte Unknown8 { get; set; }
-    public byte? HasMipMap { get; set; }
-    public byte[] Data { get; set; } = null!;
+    public bool HasMipMap { get; set; }
     public bool IsDirectX10 { get; set; }
+    [IgnoreFieldDescriptor]
+    public byte[] Data { get; set; } = null!;
 
-    internal TextureResource()
+    private TextureResource()
     {
     }
 
-    internal TextureResource(ulong hash, byte? hasMipMap, byte[] data)
+    internal TextureResource(ulong hash, bool hasMipMap, byte[] data)
     {
         NameHash = hash;
         Unknown8 = 0;
         HasMipMap = hasMipMap;
-        Data = data;
         IsDirectX10 = false;
+        Data = data;
     }
 
     public void Serialize(ushort version, Stream stream, Endian endian)
@@ -56,7 +58,7 @@ public class TextureResource : IResourceType<TextureResource>
 
         if (version == 2)
         {
-            stream.WriteValueU8(HasMipMap!.Value);
+            stream.WriteValueU8((byte)(HasMipMap ? 1 : 0));
         }
 
         stream.WriteBytes(Data);
@@ -76,16 +78,16 @@ public class TextureResource : IResourceType<TextureResource>
         ulong nameHash = stream.ReadValueU64(endian);
         byte unknown8 = stream.ReadValueU8();
 
-        byte? hasMipMap = null;
+        var hasMipMap = false;
 
         if (version == 2)
         {
-            hasMipMap = stream.ReadValueU8();
+            hasMipMap = stream.ReadValueU8() == 1;
         }
 
         byte[] data = stream.ReadBytes((int)(stream.Length - stream.Position));
 
-        return new TextureResource()
+        return new TextureResource
         {
             NameHash = nameHash,
             Unknown8 = unknown8,
@@ -101,7 +103,7 @@ public class TextureResource : IResourceType<TextureResource>
         byte unknown8 = stream.ReadValueU8();
         byte[] data = stream.ReadBytes((int)(stream.Length - stream.Position));
 
-        return new TextureResource()
+        return new TextureResource
         {
             NameHash = nameHash,
             Unknown8 = unknown8,

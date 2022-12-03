@@ -20,6 +20,7 @@
  *    distribution.
  */
 
+using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
@@ -27,37 +28,27 @@ namespace Core.IO.FileFormats.SDS.Resource.Types;
 public class ScriptResource : IResourceType<ScriptResource>
 {
     public string Path { get; set; } = null!;
-    public List<ScriptData> Scripts { get; set; } = null!;
+    [IgnoreFieldDescriptor]
+    public int ScriptsCount => Scripts.Length;
 
-    internal ScriptResource()
+    public ScriptData[] Scripts { get; set; } = null!;
+
+    private ScriptResource()
     {
     }
-    
-    // Util function to get size of bytes of all scripts
-    public uint GetSize()
-    {
-        return Scripts.Aggregate<ScriptData, uint>(0, (current, script) => current + (uint)script.Data.Length);
-    }
-    
-    // Util function to get size of bytes of all scripts
-    public uint GetRawBytes()
-    {
-        uint totalSize = 0;
 
-        foreach(ScriptData script in Scripts)
-        {
-            totalSize += (uint)script.Data.Length;
-        }
-        
-        return totalSize;
+    // TODO move this to entry class ?
+    public uint GetDataLength()
+    {
+        return (uint)Scripts.Sum(script => script.Data.Length);
     }
 
     public void Serialize(ushort version, Stream stream, Endian endian)
     {
         stream.WriteStringU16(Path, endian);
-        stream.WriteValueS32(Scripts.Count, endian);
+        stream.WriteValueS32(Scripts.Length, endian);
         
-        foreach (ScriptData script in this.Scripts)
+        foreach (ScriptData script in Scripts)
         {
             script.Serialize(version, stream, endian);
         }
@@ -68,15 +59,14 @@ public class ScriptResource : IResourceType<ScriptResource>
         string path = stream.ReadStringU16(endian);
         uint count = stream.ReadValueU32(endian);
 
-        var scripts = new List<ScriptData>();
+        var scripts = new ScriptData[count];
 
-        for (uint i = 0; i < count; i++)
+        for (uint index = 0; index < count; index++)
         {
-            ScriptData script = ScriptData.Deserialize(version, stream, endian);
-            scripts.Add(script);
+            scripts[index] = ScriptData.Deserialize(version, stream, endian);
         }
 
-        return new ScriptResource()
+        return new ScriptResource
         {
             Path = path,
             Scripts = scripts

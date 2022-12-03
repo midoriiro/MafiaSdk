@@ -24,7 +24,7 @@ using System.Text;
 
 namespace Core.IO.FileFormats.Hashing;
 
-public static class FNV32
+public static class Fnv32
 {
     public const uint Initial = 0x811C9DC5;
 

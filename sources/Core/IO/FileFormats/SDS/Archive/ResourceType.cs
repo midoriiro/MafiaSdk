@@ -22,70 +22,74 @@
 
 using Core.IO.Streams;
 
-namespace Core.IO.FileFormats.SDS.Archive
+namespace Core.IO.FileFormats.SDS.Archive;
+
+public readonly struct ResourceType : IEquatable<ResourceType>
 {
-    public struct ResourceType : IEquatable<ResourceType>
+    public uint Id { get; init; }
+    public string Name { get; init; }
+    public uint Parent { get; init; }
+
+    public static ResourceType Read(Stream input, Endian endian)
     {
-        public uint Id;
-        public string Name;
-        public uint Parent;
-
-        public static ResourceType Read(Stream input, Endian endian)
-        {
-            ResourceType instance;
-            instance.Id = input.ReadValueU32(endian);
-            instance.Name = input.ReadStringU32(endian);
-            instance.Parent = input.ReadValueU32(endian);
-            return instance;
-        }
+        uint id = input.ReadValueU32(endian);
+        string name = input.ReadStringU32(endian);
+        uint parent = input.ReadValueU32(endian);
         
-        public void Write(Stream output, Endian endian)
+        return new ResourceType
         {
-            output.WriteValueU32(Id, endian);
-            output.WriteStringU32(Name, endian);
-            output.WriteValueU32(Parent, endian);
-        }
+            Id = id,
+            Name = name,
+            Parent = parent
+        };
+    }
+        
+    public void Write(Stream output, Endian endian)
+    {
+        output.WriteValueU32(Id, endian);
+        output.WriteStringU32(Name, endian);
+        output.WriteValueU32(Parent, endian);
+    }
 
-        public bool Equals(ResourceType other)
-        {
-            return Id == other.Id &&
-                   string.Equals(Name, other.Name) &&
-                   Parent == other.Parent;
-        }
+    public bool Equals(ResourceType other)
+    {
+        return Id == other.Id &&
+               string.Equals(Name, other.Name) &&
+               Parent == other.Parent;
+    }
 
-        public override bool Equals(object? obj)
+    public override bool Equals(object? obj)
+    {
+        if (ReferenceEquals(null, obj))
         {
-            if (ReferenceEquals(null, obj))
-            {
-                return false;
-            }
-            return obj is ResourceType type && Equals(type);
+            return false;
         }
+        return obj is ResourceType type && Equals(type);
+    }
 
-        public override int GetHashCode()
+    public override int GetHashCode()
+    {
+        unchecked
         {
-            unchecked
-            {
-                var hashCode = (int)Id;
-                hashCode = (hashCode * 397) ^ (Name != null ? Name.GetHashCode() : 0);
-                hashCode = (hashCode * 397) ^ (int)Parent;
-                return hashCode;
-            }
+            var hashCode = (int)Id;
+            hashCode = (hashCode * 397) ^ (Name != null ? Name.GetHashCode() : 0);
+            hashCode = (hashCode * 397) ^ (int)Parent;
+            return hashCode;
         }
+    }
 
-        public static bool operator ==(ResourceType left, ResourceType right)
-        {
-            return left.Equals(right);
-        }
+    public static bool operator ==(ResourceType left, ResourceType right)
+    {
+        return left.Equals(right);
+    }
 
-        public static bool operator !=(ResourceType left, ResourceType right)
-        {
-            return left.Equals(right) == false;
-        }
+    public static bool operator !=(ResourceType left, ResourceType right)
+    {
+        return left.Equals(right) == false;
+    }
 
-        public override string ToString()
-        {
-            return $"ID: {Id}, Name: {Name}, Parent: {Parent}";
-        }
+    public override string ToString()
+    {
+        return $"ID: {Id}, Name: {Name}, Parent: {Parent}";
     }
 }

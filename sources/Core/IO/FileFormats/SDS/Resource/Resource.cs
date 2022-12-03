@@ -1,15 +1,22 @@
 ﻿using System.Text;
-using System.Xml;
 using System.Xml.XPath;
 using Core.Games;
 using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Caches;
+using Core.IO.FileFormats.SDS.Resource.Entries.Extensions;
+using Core.IO.FileFormats.SDS.Resource.Results;
+using Core.IO.FileFormats.SDS.Resource.Streams;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource;
 
 public static class Resource
 {
-    private static readonly Dictionary<string, string> _fileExtensionLookup = new()
+    private static readonly ResourceNameCache Mafia1TexturesCache = ResourceNameCache.LoadMafia1Textures();
+    private static readonly ResourceNameCache Mafia2TexturesCache = ResourceNameCache.LoadMafia2Textures();
+    private static readonly ResourceNameCache Mafia3ResourcesCache = ResourceNameCache.LoadMafia3Resources();
+    
+    private static readonly Dictionary<string, string> FileExtensionLookup = new()
     {
         { "Texture", ".dds" },
         { "Mipmap", ".dds" },
@@ -40,10 +47,10 @@ public static class Resource
         { "Sound", ".fsb" },
         { "MemFile", ".txt" },
         { "XML", ".xml" },
-        { "Animated Texture", ".ifl" },
+        { "Animated Texture", ".ifl" }
     };
 
-    private static readonly Dictionary<string, string> _fileExtensionLookupFusion = new()
+    private static readonly Dictionary<string, string> FileExtensionLookupFusion = new()
     {
         { "Texture", ".dds" },
         { "Generic", ".genr" },
@@ -64,31 +71,29 @@ public static class Resource
     {
         int crySdsType = -1;
 
-        for (var i = 0; i != archiveFile.ResourceTypes.Count; i++)
+        for (var index = 0; index != archiveFile.ResourceTypes.Count; index++)
         {
             // check if resource type has empty name
-            if (archiveFile.ResourceTypes[i].Name == "")
+            if (archiveFile.ResourceTypes[index].Name == "")
             {
-                crySdsType = (int)archiveFile.ResourceTypes[i].Id;
+                crySdsType = (int)archiveFile.ResourceTypes[index].Id;
             }
         }
-
 
         if (crySdsType == -1)
         {
             return null;
         }
 
-
-        for (var i = 0; i < archiveFile.ResourceEntries.Count; i++)
+        for (var index = 0; index < archiveFile.ResourceEntries.Count; index++)
         {
-            if (archiveFile.ResourceEntries[i].TypeId != crySdsType)
+            if (archiveFile.ResourceEntries[index].TypeId != crySdsType)
             {
                 continue;
             }
 
             // Fix for CrySDS archives
-            using var stream = new MemoryStream(archiveFile.ResourceEntries[i].Data!);
+            using var stream = new MemoryStream(archiveFile.ResourceEntries[index].Data!);
 
             // Skip passwords
             ushort authorLen = stream.ReadValueU16();
@@ -105,7 +110,7 @@ public static class Resource
             }
 
             // Remove CrySDS lock
-            archiveFile.ResourceEntries.RemoveAt(i);
+            archiveFile.ResourceEntries.RemoveAt(index);
             archiveFile.ResourceTypes.RemoveAt(crySdsType);
 
             // Return document
@@ -125,62 +130,71 @@ public static class Resource
 
         if (selectedGame is GamesEnumerator.Mafia2 or GamesEnumerator.Mafia2DefinitiveEdition)
         {
-            extension = _fileExtensionLookup[typename];
+            extension = FileExtensionLookup[typename];
             return extension;
         }
 
-        extension = _fileExtensionLookupFusion[typename];
+        extension = FileExtensionLookupFusion[typename];
         return extension;
     }
-
-    public static void SaveResources(FileInfo file, ArchiveFile archiveFile, GamesEnumerator selectedGame)
+    
+    private static void DetermineTypeNames(ArchiveFile archiveFile, XPathDocument? document)
     {
-        XPathDocument? document = null;
-
-        // pull XML from resource info XML
-        // If it doesn't exist, attempt to check for CrySDS lock
-        if (string.IsNullOrEmpty(archiveFile.ResourceInfoXml) == false)
+        if (document is null)
         {
-            using var reader = new StringReader(archiveFile.ResourceInfoXml);
-            document = new XPathDocument(reader);
+            return;
         }
-        else if (archiveFile.Version == 19)
+        
+        XPathNavigator nav = document.CreateNavigator();
+        XPathNodeIterator nodes = nav.Select("/xml/ResourceInfo/TypeName");
+        
+        var index = 0;
+
+        while (nodes.MoveNext())
         {
-            document = CheckForCrySds(archiveFile);
-        }
-
-        // stub out file names
-        for (var i = 0; i < archiveFile.ResourceEntries.Count; i++)
-        {
-            ResourceEntry entry = archiveFile.ResourceEntries[i];
-
-            var fileName = "unknown_0";
-
-            if (entry.TypeId != -1)
+            if (nodes.Current is null)
             {
-                // TODO: Determine if this could be done for fusion games
-                var nameOfFile = "file";
-
-                if (selectedGame is GamesEnumerator.Mafia2 or GamesEnumerator.Mafia2DefinitiveEdition)
-                {
-                    nameOfFile = archiveFile.ResourceTypes[entry.TypeId].Name;
-                }
-
-                // Get extension, format filename properly.
-                string extension = DetermineFileExtension(archiveFile.ResourceTypes[entry.TypeId].Name, selectedGame);
-                fileName = $"{nameOfFile}_{i}{extension}";
+                continue;
             }
 
-            archiveFile.ResourceNames.Add(fileName);
-        }
+            string name = nodes.Current.Value;
 
-        // Pull names from XML
+            ResourceEntry entry = archiveFile.ResourceEntries[index];
+
+            if (entry.TypeId == -1)
+            {
+                uint resourceTypeToReplace = archiveFile.ResourceTypes
+                    .Single(type => type.Name == name)
+                    .Id;
+                entry.TypeId = (int)resourceTypeToReplace;
+            }
+            
+            string entryTypeName = archiveFile.ResourceTypes[entry.TypeId].Name;
+
+            if (name != entryTypeName)
+            {
+                // TODO ?
+            }
+            
+            index++;
+        }
+    }
+
+    private static void DetermineEntriesName(ArchiveFile archiveFile, GamesEnumerator selectedGame, XPathDocument? document)
+    {
+        ResourceNameCache cache = selectedGame switch
+        {
+            GamesEnumerator.Mafia1DefinitiveEdition => Mafia1TexturesCache,
+            GamesEnumerator.Mafia2 or GamesEnumerator.Mafia2DefinitiveEdition => Mafia2TexturesCache,
+            GamesEnumerator.Mafia3 => Mafia3ResourcesCache,
+            _ => throw new ArgumentOutOfRangeException(nameof(selectedGame), selectedGame, null)
+        };
+        
         if (document is not null)
         {
             XPathNavigator nav = document.CreateNavigator();
             XPathNodeIterator nodes = nav.Select("/xml/ResourceInfo/SourceDataDescription");
-
-            // iterate and update name
+            
             var index = 0;
 
             while (nodes.MoveNext())
@@ -191,103 +205,357 @@ public static class Resource
                 }
 
                 string name = nodes.Current.Value;
+                
+                if (name.Contains('*') || name.Contains('+'))
+                {
+                    string fileName = $"file_{index}";
+                    name = name.Replace("*", fileName);
+                    name = name.Replace("+", fileName);
+                }
 
-                if (!name.Equals("not available"))
+                if (name.Equals("not available"))
+                {
+                    ResourceEntry entry = archiveFile.ResourceEntries[index];
+
+                    if (cache.ContainsKey(entry.FileHash))
+                    {
+                        archiveFile.ResourceNames[index] = cache[entry.FileHash];
+                    }
+                }
+                else
                 {
                     archiveFile.ResourceNames[index] = name;
                 }
 
                 index++;
             }
+            
+            var duplicateNames = archiveFile.ResourceNames
+                .Where(name => !name.EndsWith(".dds")) // Ignore DDS textures since we change filename afterward
+                .GroupBy(name => name)
+                .Where(names => names.Count() > 1)
+                .ToList();
 
-            // TODO log this
-            // Log.WriteLine("Found all items; count is " + nodes.Count);
+            // ReSharper disable once ForCanBeConvertedToForeach
+            for (var x = 0; x < duplicateNames.Count; x++)
+            {
+                var group = duplicateNames[x].ToList();
+                int[] indexes = archiveFile.ResourceNames.FindIndexes(group);
+
+                for (var y = 0; y < indexes.Length; y++)
+                {
+                    int nameIndex = indexes[y];
+                    string name = archiveFile.ResourceNames[nameIndex];
+                    string extension = Path.GetExtension(name);
+                    string filename = Path.GetFileNameWithoutExtension(name);
+                    name = $"{filename}#{y + 1}{extension}";
+                    archiveFile.ResourceNames[nameIndex] = name;
+                }
+            }
         }
-        
-        var settings = new XmlWriterSettings
+        else
         {
-            Indent = true,
-            IndentChars = ("\t"),
-            OmitXmlDeclaration = true
-        };
+            // Exclude duplicate file hashes from getting proper resource names
+            var resourceEntriesFileHashes = archiveFile.ResourceEntries
+                .GroupBy(entry => entry.FileHash)
+                .Where(entries => entries.Count() == 1)
+                .Select(entries => entries.Key)
+                .ToList();
 
-        // Create extraction directory
-        string pathToSave = file.FullName;
-        Directory.CreateDirectory(pathToSave);
+            for (var index = 0; index < archiveFile.ResourceEntries.Count; index++)
+            {
+                ResourceEntry entry = archiveFile.ResourceEntries[index];
 
-        // TODO log this
-        // Log.WriteLine("Begin unpacking and saving files..");
+                if (!resourceEntriesFileHashes.Contains(entry.FileHash) || !cache.ContainsKey(entry.FileHash))
+                {
+                    continue;
+                }
 
-        // Save resource
-        string contentPath = Path.Join(pathToSave, "SDSContent.xml");
+                string name = cache[entry.FileHash];
+                    
+                if (name.Contains('*') || name.Contains('+'))
+                {
+                    string fileName = $"file_{index}";
+                    name = name.Replace("*", fileName);
+                    name = name.Replace("+", fileName);
+                }
 
-        var writer = XmlWriter.Create(contentPath, settings);
-        writer.WriteStartElement("SDSResource");
-
-        switch (archiveFile.Version)
-        {
-            // case 19:
-            //     ResourceFunction19.SaveResources(writer, archiveFile);
-            //     break;
-            case 20:
-                ResourceFunction20.SaveResources(writer, archiveFile, pathToSave);
-                break;
+                archiveFile.ResourceNames[index] = name;
+            }
         }
     }
 
-    // public bool BuildResources(string folder, ArchiveFile archiveFile)
+    private static void FillEntriesWithStubNames(ArchiveFile archiveFile, GamesEnumerator selectedGame)
+    {
+        for (var index = 0; index < archiveFile.ResourceEntries.Count; index++)
+        {
+            ResourceEntry entry = archiveFile.ResourceEntries[index];
+
+            string fileName;
+
+            if (entry.TypeId != -1)
+            {
+                // Get extension, format filename properly.
+                string extension = DetermineFileExtension(archiveFile.ResourceTypes[entry.TypeId].Name, selectedGame);
+                fileName = $"file_{index}{extension}";
+            }
+            else
+            {
+                fileName = "UnknownType";
+            }
+
+            archiveFile.ResourceNames.Add(fileName);
+        }
+    }
+
+    // TODO refactor methods name to Deserialize/Serialize in classes: Resources, ResourcesFunctions*, *Entry
+    public static void DeserializeResources(
+        DataWriterScheduler dataWriterScheduler, 
+        ArchiveFile archiveFile, 
+        GamesEnumerator selectedGame
+    )
+    {
+        // TODO refactor this to use another XML lib ?
+        XPathDocument? document = null;
+
+        // Pull XML from resource info XML
+        // If it doesn't exist, attempt to check for CrySDS lock
+        if (string.IsNullOrEmpty(archiveFile.ResourceInfoXml) == false)
+        {
+            using var reader = new StringReader(archiveFile.ResourceInfoXml);
+            document = new XPathDocument(reader);
+        }
+        else if (archiveFile.Version == 19)
+        {
+            document = CheckForCrySds(archiveFile);
+        }
+        
+        DetermineTypeNames(archiveFile, document);
+        FillEntriesWithStubNames(archiveFile, selectedGame);
+        DetermineEntriesName(archiveFile, selectedGame, document);
+
+        DeserializeResult result = archiveFile.Version switch
+        {
+            19 => ResourceFunction19.DeserializeResources(archiveFile),
+            20 => ResourceFunction20.DeserializeResources(archiveFile),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(archiveFile.Version), 
+                $"Unknown version '{archiveFile.Version}'"
+            )
+        };
+
+        string json = result.Manifest.Serialize();
+        var manifest = new DataDescriptor("manifest", Encoding.UTF8.GetBytes(json));
+        result.DataDescriptors.Add(manifest);
+        dataWriterScheduler.Push(result.DataDescriptors);
+    }
+
+    // public static void DeserializePatchResources(FileInfo file, ArchiveFile archiveFile)
     // {
-    //     string sdsFolder = folder;
-    //     XmlDocument? sdsDocument;
-    //
-    //     string sdsContentPath = Path.Join(sdsFolder, "SDSContent.xml");
-    //
-    //     // First check if it actually exists
-    //     if (!File.Exists(sdsContentPath))
+    //     var settings = new XmlWriterSettings
     //     {
-    //         // TODO log this
-    //         // MessageBox.Show("SDSContent.xml does not exist. Cannot pack this SDS.", "Mafia Toolkit");
-    //         return false;
-    //     }
-    //
-    //     // Then attempt to read
-    //     // Attempt to sort the file.
-    //     // Only works for M2 and M2DE.
-    //     if (ChosenGameType == GamesEnumerator.MafiaII || ChosenGameType == GamesEnumerator.MafiaII_DE)
-    //     {
-    //         // Loading then saving automatically sorts.
-    //         SDSContentFile sdsContent = new SDSContentFile();
-    //         sdsContent.ReadFromFile(new FileInfo(sdsContentPath));
-    //         sdsContent.WriteToFile();
-    //     }
-    //
-    //     // Open a FileStream which contains the SDSContent data.
-    //     using (var xmlStream = new FileStream(sdsContentPath, FileMode.Open))
-    //     {
-    //         try
-    //         {
-    //             sdsDocument = new XmlDocument();
-    //             sdsDocument.Load(xmlStream);
-    //         }
-    //         catch (Exception exception)
-    //         {
-    //             // TODO log this
-    //             // MessageBox.Show($"Error while parsing SDSContent.XML. \n{ex.Message}");
-    //             return false;
-    //         }
-    //     }
-    //
-    //     // GoAhead and begin creating the document to save inside the SDSContent.
-    //     var document = new XmlDocument();
-    //     XmlNode rootNode = document.CreateElement("xml");
-    //     document.AppendChild(rootNode);
-    //
-    //     // Try and pack the resources found in SDSContent.
-    //     return archiveFile.Version switch
-    //     {
-    //         19 => ResourceFunction19.BuildResources(sdsDocument, document, rootNode, sdsFolder, archiveFile),
-    //         20 => ResourceFunction20.BuildResources(sdsDocument, document, rootNode, sdsFolder, archiveFile),
-    //         _ => false
+    //         Indent = true,
+    //         IndentChars = ("\t"),
+    //         OmitXmlDeclaration = true
     //     };
+    //
+    //     // Create extraction directory
+    //     string pathToSave = file.FullName;
+    //     Directory.CreateDirectory(pathToSave);
+    //     
+    //     // Save resource
+    //     string contentPath = Path.Join(pathToSave, "SDSContent.xml");
+    //     var writer = XmlWriter.Create(contentPath, settings);
+    //     writer.WriteStartElement("SDSResource");
+    //
+    //     ArchivePatchFile patchFile = null!;
+    //
+    //     using (FileStream input = File.OpenRead(file.FullName))
+    //     {
+    //         using (Stream? data = ArchiveEncryption.Unwrap(input))
+    //         {
+    //             patchFile = new ArchivePatchFile(file);
+    //             patchFile.Deserialize(data ?? input, Endian.Little);
+    //         }
+    //     }
+    //     
+    //     var sortedResources = new Dictionary<string, Dictionary<int, string>>();
+    //     var resourcePatchAvailable = new Dictionary<string, List<KeyValuePair<int, bool>>>();
+    //
+    //     for (var index = 0; index < archiveFile.ResourceTypes.Count; index++)
+    //     {
+    //         sortedResources.Add(archiveFile.ResourceTypes[index].Name, new Dictionary<int, string>());
+    //         resourcePatchAvailable.Add(archiveFile.ResourceTypes[index].Name, new List<KeyValuePair<int, bool>>());
+    //     }
+    //
+    //     for (var index = 0; index < archiveFile.ResourceEntries.Count; index++)
+    //     {
+    //         string type = archiveFile.ResourceTypes[archiveFile.ResourceEntries[index].TypeId].Name;
+    //         string name = type == "Mipmap" ? 
+    //             archiveFile.ResourceNames[index].Remove(0, 4) : 
+    //             archiveFile.ResourceNames[index];
+    //
+    //         if (!sortedResources.ContainsKey(type))
+    //         {
+    //             continue;
+    //         }
+    //
+    //         sortedResources[type].Add(index, name);
+    //
+    //         if (!patchFile.UnkInts1.Contains(index))
+    //         {
+    //             continue;
+    //         }
+    //
+    //         resourcePatchAvailable[type].Add(new KeyValuePair<int, bool>(index, false));
+    //     }
+    //
+    //     for (var index = 0; index < patchFile.Resources.Length; index++)
+    //     {
+    //         ResourceEntry entry = patchFile.Resources[index];
+    //         string resourceTypeName = entry.TypeId < archiveFile.ResourceTypes.Count ? 
+    //             archiveFile.ResourceTypes[entry.TypeId].Name : 
+    //             "UnknownType";
+    //         string saveName;
+    //         string nameToPass = $"{resourceTypeName}_{index}";
+    //
+    //         if (resourcePatchAvailable.ContainsKey(resourceTypeName))
+    //         {
+    //             for (var z = 0; z < resourcePatchAvailable[resourceTypeName].Count; z++)
+    //             {
+    //                 var resourcePatch = resourcePatchAvailable[resourceTypeName][z];
+    //                 
+    //                 if (resourcePatch.Value)
+    //                 {
+    //                     continue;
+    //                 }
+    //
+    //                 string storedName = sortedResources[resourceTypeName][resourcePatch.Key];
+    //                         
+    //                 if (!storedName.Equals("not available"))
+    //                 {
+    //                     nameToPass = storedName;
+    //                 }
+    //
+    //                 resourcePatchAvailable[resourceTypeName][z] = new KeyValuePair<int, bool>(resourcePatch.Key, true);
+    //                 break;
+    //             }
+    //         }
+    //
+    //         writer.WriteStartElement("ResourceEntry");
+    //         writer.WriteElementString("Type", resourceTypeName);
+    //         
+    //         switch (resourceTypeName)
+    //         {
+    //             case "Texture":
+    //                 bool isFileNameContainsDdsExtension = nameToPass.Contains(".dds");
+    //                 nameToPass = !isFileNameContainsDdsExtension ? nameToPass + ".dds" : nameToPass; 
+    //                 saveName = TextureEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "Mipmap":
+    //                 saveName = TextureMipMapEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "IndexBufferPool":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "VertexBufferPool":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "AnimalTrafficPaths":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "FrameResource":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "Translokator":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "Effects":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "FrameNameTable":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "EntityDataStorage":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "PREFAB":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "ItemDesc":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "Actors":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "Collisions":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "Animation2":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "NAV_AIWORLD_DATA":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "NAV_OBJ_DATA":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "NAV_HPD_DATA":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "FxAnimSet":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "FxActor":
+    //                 saveName = BasicEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "Sound":
+    //                 nameToPass += ".fsb";
+    //                 saveName = SoundEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             case "Script":
+    //                 ScriptEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 continue;
+    //             case "AudioSectors":
+    //                 saveName = AudioSectorEntry.Read(entry, writer, nameToPass, pathToSave, archiveFile.Endian);
+    //                 break;
+    //             default:
+    //                 throw new ArgumentOutOfRangeException($"Unknown resource type: {resourceTypeName}");
+    //         }
+    //         
+    //         writer.WriteElementString("Version", entry.Version.ToString());
+    //         string pathToWrite = Path.Join(pathToSave, saveName);
+    //         Console.Out.WriteLine(pathToWrite); // TODO use logger and refactor all console log
+    //         File.WriteAllBytes(pathToWrite, entry.Data!);
+    //         writer.WriteEndElement();
+    //     }
+    //     
+    //     writer.WriteEndElement();
+    //     writer.Flush();
+    //     writer.Dispose();
     // }
+
+    public static ArchiveFile SerializeResources(string path)
+    {
+        string manifestFile = Path.Join(path, "manifest");
+
+        if (!File.Exists(manifestFile))
+        {
+            throw new ArgumentException("Manifest file do not exists", nameof(path));
+        }
+
+        string manifestContent = File.ReadAllText(manifestFile);
+
+        Manifest.Manifest manifest = Manifest.Manifest.Deserialize(manifestContent);
+        
+        return manifest.Version switch
+        {
+            19 => ResourceFunction19.SerializeResources(manifest, path),
+            20 => ResourceFunction20.SerializeResources(manifest, path),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(manifest.Version), 
+                $"Unknown version '{manifest.Version}'"
+            )
+        };
+    }
 }

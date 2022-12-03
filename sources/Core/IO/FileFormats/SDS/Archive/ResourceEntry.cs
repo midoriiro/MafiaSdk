@@ -20,22 +20,21 @@
  *    distribution.
  */
 
-namespace Core.IO.FileFormats.SDS.Archive
-{
-    public class ResourceEntry
-    {
-        public int TypeId;
-        public ushort Version;
-        public byte[]? Data;
-        public ulong FileHash; // Version 20 ONLY.
-        public uint SlotRamRequired;
-        public uint SlotVramRequired;
-        public uint OtherRamRequired;
-        public uint OtherVramRequired;
+namespace Core.IO.FileFormats.SDS.Archive;
 
-        public override string ToString()
-        {
-            return $"TypeID: {TypeId}, Version: {Version}, DataSize: {Data?.Length}";
-        }
+public class ResourceEntry
+{
+    public int TypeId;
+    public ushort Version;
+    public byte[]? Data;
+    public ulong FileHash; // Version 20 ONLY.
+    public uint SlotRamRequired;
+    public uint SlotVramRequired;
+    public uint OtherRamRequired;
+    public uint OtherVramRequired;
+
+    public override string ToString()
+    {
+        return $"TypeID: {TypeId}, Version: {Version}, DataSize: {Data?.Length}";
     }
 }

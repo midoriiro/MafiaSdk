@@ -31,7 +31,7 @@ namespace Core.IO.FileFormats.Streams;
 
 public class BlockWriterStream : Stream
 {
-    public const uint Signature = 0x6C7A4555; // 'zlEU'
+    private const uint Signature = 0x6C7A4555; // 'zlEU'
 
     private readonly Endian _endian;
     private readonly uint _alignment;
@@ -50,20 +50,27 @@ public class BlockWriterStream : Stream
         _blockOffset = 0;
         _isCompressing = compress;
         _alignment = alignment;
+        
         if (useOodle)
         {
             _useOodle = true; // Parametrize this ToolkitSettings.bUseOodleCompression;
         }
     }
         
-    public static BlockWriterStream ToStream(Stream baseStream, uint alignment, Endian endian, bool compress, bool bUseOodle)
+    public static BlockWriterStream ToStream(
+        Stream baseStream, 
+        uint alignment, 
+        Endian endian, 
+        bool compress, 
+        bool useOodle
+    )
     {
-        var instance = new BlockWriterStream(baseStream, alignment, endian, compress, bUseOodle);
+        var stream = new BlockWriterStream(baseStream, alignment, endian, compress, useOodle);
         baseStream.WriteValueU32(Signature, endian);          
-        uint headerAlignment = instance._useOodle && compress ? alignment | 0x1000000 : alignment;
+        uint headerAlignment = stream._useOodle && compress ? alignment | 0x1000000 : alignment;
         baseStream.WriteValueU32(headerAlignment, endian);
         baseStream.WriteValueU8(4);
-        return instance;
+        return stream;
     }
         
     private static bool IsWithinCompressionRatio(int compressedSize, int blockLength)
@@ -140,7 +147,7 @@ public class BlockWriterStream : Stream
         }
 
         int blockLength = _blockOffset;
-        _baseStream.WriteValueS32(blockLength,_endian);
+        _baseStream.WriteValueS32(blockLength, _endian);
         _baseStream.WriteValueU8(0);
         _baseStream.Write(_blockBytes, 0, blockLength);
         _blockOffset = 0;
@@ -175,18 +182,17 @@ public class BlockWriterStream : Stream
             return false;
         }
 
-        _baseStream.WriteValueS32(32 + compressedLength,_endian);
+        _baseStream.WriteValueS32(32 + compressedLength, _endian);
         _baseStream.WriteValueU8(1);
             
-        var compressedBlockHeader = new CompressedBlockHeader
+        var compressedBlockHeader = new CompressedBlockHeader(CompressedBlockHeaderPreset.ZLib)
         {
-            Chunks = new ushort[1]
+            UncompressedSize = (uint)blockLength, //TODO: I think this should actually be alignment?
+            CompressedSize = (uint)compressedLength,
+            ChunkSize = (ushort)_alignment,
+            Unknown0C = 135200769
         };
-        compressedBlockHeader.SetZlibPreset();
-        compressedBlockHeader.UncompressedSize = (uint)blockLength; //TODO: I think this should actually be alignment?
-        compressedBlockHeader.CompressedSize = (uint)compressedLength;
-        compressedBlockHeader.ChunkSize = (short)_alignment;
-        compressedBlockHeader.Unknown0C = 135200769;
+        
         compressedBlockHeader.Chunks[0] = (ushort)compressedBlockHeader.CompressedSize;
         compressedBlockHeader.Write(_baseStream,_endian);
             
@@ -228,17 +234,15 @@ public class BlockWriterStream : Stream
         _baseStream.WriteValueS32(128 + compressedLength,_endian);
         _baseStream.WriteValueU8(1);
             
-        var compressedBlockHeader = new CompressedBlockHeader
+        var compressedBlockHeader = new CompressedBlockHeader(CompressedBlockHeaderPreset.Oodle)
         {
-            Chunks = new ushort[1]
+            UncompressedSize = (uint)blockLength,
+            CompressedSize = (uint)compressedLength,
+            ChunkSize = 1,
+            Unknown0C = (uint)blockLength
         };
-        compressedBlockHeader.SetOodlePreset();
-        compressedBlockHeader.UncompressedSize = (uint)blockLength;
-        compressedBlockHeader.CompressedSize = (uint)compressedLength;
-        compressedBlockHeader.ChunkSize = 1;
-        compressedBlockHeader.Unknown0C = (uint)blockLength;
-        compressedBlockHeader.Chunks[0] = (ushort)compressedBlockHeader.CompressedSize;
 
+        compressedBlockHeader.Chunks[0] = (ushort)compressedBlockHeader.CompressedSize;
         compressedBlockHeader.Write(_baseStream,_endian);
         _baseStream.Write(new byte[96], 0, 96); // Empty padding.
         _baseStream.Write(data.GetBuffer(), 0, compressedLength);

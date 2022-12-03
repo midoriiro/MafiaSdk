@@ -22,58 +22,65 @@
 
 using Core.IO.Streams;
 
-namespace Core.IO.FileFormats.SDS.Archive
+namespace Core.IO.FileFormats.SDS.Archive;
+
+internal readonly struct ResourceHeader
 {
-    internal struct ResourceHeader
+    public uint TypeId { get; init; }
+    public uint Size { get; init; }
+    public ushort Version { get; init; }
+    public ulong FileHash { get; init; }
+    public uint SlotRamRequired { get; init; }
+    public uint SlotVramRequired { get; init; }
+    public uint OtherRamRequired { get; init; }
+    public uint OtherVramRequired { get; init; }
+
+    public static ResourceHeader Read(Stream input, Endian endian, uint version)
     {
-        public uint TypeId;
-        public uint Size; // includes this header
-        public ushort Version;
-        public ulong FileHash;
-        public uint SlotRamRequired;
-        public uint SlotVramRequired;
-        public uint OtherRamRequired;
-        public uint OtherVramRequired;
-
-        public static ResourceHeader Read(Stream input, Endian endian, uint version)
+        var fileHash = 0UL;
+            
+        uint typeId = input.ReadValueU32(endian);
+        uint size = input.ReadValueU32(endian);
+        ushort resourceVersion = input.ReadValueU16(endian);
+            
+        if(version == 20)
         {
-            ResourceHeader instance;
-            instance.FileHash = 0;
-
-            instance.TypeId = input.ReadValueU32(endian);
-            instance.Size = input.ReadValueU32(endian);
-            instance.Version = input.ReadValueU16(endian);
-
-            // File guid, only on version 20
-            if(version == 20)
-            {
-                instance.FileHash = input.ReadValueU64(endian);
-            }
-
-            instance.SlotRamRequired = input.ReadValueU32(endian);
-            instance.SlotVramRequired = input.ReadValueU32(endian);
-            instance.OtherRamRequired = input.ReadValueU32(endian);
-            instance.OtherVramRequired = input.ReadValueU32(endian);
-
-            return instance;
+            fileHash = input.ReadValueU64(endian);
         }
 
-        public void Write(Stream output, Endian endian, uint version)
+        uint slotRamRequired = input.ReadValueU32(endian);
+        uint slotVramRequired = input.ReadValueU32(endian);
+        uint otherRamRequired = input.ReadValueU32(endian);
+        uint otherVramRequired = input.ReadValueU32(endian);
+
+        return new ResourceHeader
         {
-            output.WriteValueU32(TypeId, endian);
-            output.WriteValueU32(Size, endian);
-            output.WriteValueU16(Version, endian);
+            FileHash = fileHash,
+            TypeId = typeId,
+            Size = size,
+            Version = resourceVersion,
+            SlotRamRequired = slotRamRequired,
+            SlotVramRequired = slotVramRequired,
+            OtherRamRequired = otherRamRequired,
+            OtherVramRequired = otherVramRequired
+        };
+    }
 
-            // Write exclusive version 20 data
-            if(version == 20)
-            {
-                output.WriteValueU64(FileHash);
-            }
+    public void Write(Stream output, Endian endian, uint version)
+    {
+        output.WriteValueU32(TypeId, endian);
+        output.WriteValueU32(Size, endian);
+        output.WriteValueU16(Version, endian);
 
-            output.WriteValueU32(SlotRamRequired, endian);
-            output.WriteValueU32(SlotVramRequired, endian);
-            output.WriteValueU32(OtherRamRequired, endian);
-            output.WriteValueU32(OtherVramRequired, endian);
+        // Write exclusive version 20 data
+        if(version == 20)
+        {
+            output.WriteValueU64(FileHash);
         }
+
+        output.WriteValueU32(SlotRamRequired, endian);
+        output.WriteValueU32(SlotVramRequired, endian);
+        output.WriteValueU32(OtherRamRequired, endian);
+        output.WriteValueU32(OtherVramRequired, endian);
     }
 }

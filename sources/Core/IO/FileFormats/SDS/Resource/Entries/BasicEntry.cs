@@ -24,57 +24,89 @@
 //SEE ORIGINAL CODE HERE::
 //https://github.com/gibbed/Gibbed.Illusion
 
-using System.Xml;
-using System.Xml.XPath;
-using Core.IO.FileFormats.Hashing;
+using Core.Games;
 using Core.IO.FileFormats.SDS.Archive;
-using Core.IO.FileFormats.SDS.Resource.Types;
+using Core.IO.FileFormats.SDS.Resource.Entries.Extensions;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class BasicEntry : IResourceEntry
 {
-    public static string Read(
-        ResourceEntry entry,
-        XmlWriter writer,
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
         string name,
-        string path,
         Endian endian
     )
     {
-        writer.WriteElementString("File", name);
-        
-        // Construct path
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.Join(path, name))!);
-        
-        return name;
+        var resourceDescriptors = ManifestEntryDescriptors.CreateEmpty();
+        resourceDescriptors.AddFileName(name);
+
+        return new EntryDeserializeResult
+        {
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = new[] { new DataDescriptor(name, resourceEntry.Data!) }
+        };
     }
 
-    public static ResourceEntry Write(
-        ResourceEntry entry,
-        XPathNodeIterator nodes,
-        XmlNode sourceDataDescriptionNode,
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
         string path,
         Endian endian
     )
     {
-        if (nodes.Current is null)
+        string filename = manifestEntry.Descriptors.GetFilename()!;
+        string pathToRead = Path.Join(path, filename);
+        byte[] data = File.ReadAllBytes(pathToRead);
+
+        var resourceEntry = new ResourceEntry
         {
-            throw new NullReferenceException("Current node from node iterator is null");
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash, // TODO compute that
+            Data = data,
+            SlotRamRequired = manifestEntry.MetaData.SlotRamRequired // TODO find a solution to get correct value
+        };
+
+        // ReSharper disable once ConvertIfStatementToSwitchStatement
+        if (manifestEntry.MetaData.Type.Name == "EnlightenResource")
+        {
+            resourceEntry.OtherRamRequired = manifestEntry.MetaData.OtherRamRequired; // TODO find a solution to get correct value
+            resourceEntry.SlotRamRequired = 0;
+        }
+
+        if (manifestEntry.MetaData.Type.Name == "FrameResource")
+        {
+            resourceEntry.SlotRamRequired = manifestEntry.MetaData.SlotRamRequired; // TODO find correct value
+            resourceEntry.OtherRamRequired = manifestEntry.MetaData.OtherRamRequired; // TODO find correct value
         }
         
-        //get data from xml
-        nodes.Current.MoveToNext();
-        string file = nodes.Current.Value;
-        nodes.Current.MoveToNext();
-        entry.Version = Convert.ToUInt16(nodes.Current.Value);
+        if (manifestEntry.MetaData.Type.Name == "FxAnimSet")
+        {
+            resourceEntry.OtherRamRequired = manifestEntry.MetaData.OtherRamRequired; // TODO find correct value
+        }
+        
+        if (manifestEntry.MetaData.Type.Name == "SoundTable")
+        {
+            resourceEntry.OtherRamRequired = manifestEntry.MetaData.OtherRamRequired; // TODO find correct value
+        }
 
-        //finish
-        string pathToRead = Path.Join(path, file);
-        entry.Data = File.ReadAllBytes(pathToRead);
-        entry.SlotRamRequired = (uint)entry.Data.Length;
-        sourceDataDescriptionNode.InnerText = file;
-        return entry;
+        if (filename.StartsWith("file_"))
+        {
+            filename = "not available";
+        }
+
+        if (GameWorkSpace.Instance().SelectedGame.Type is GamesEnumerator.Mafia2 or GamesEnumerator.Mafia2DefinitiveEdition)
+        {
+            filename = filename.RemoveExtension();
+        }
+
+        return new EntrySerializeResult
+        {
+            DataDescriptor = filename,
+            ResourceEntry = resourceEntry
+        };
     }
 }

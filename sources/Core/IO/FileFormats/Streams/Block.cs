@@ -2,8 +2,8 @@
 
 internal abstract class Block
 {
-    public long Offset { get; }
-    public uint Size { get; }
+    protected long Offset { get; }
+    protected uint Size { get; }
 
     protected Block(long offset, uint size)
     {

@@ -24,9 +24,10 @@
 //SEE ORIGINAL CODE HERE::
 //https://github.com/gibbed/Gibbed.Illusion
 
-using System.Xml;
-using System.Xml.XPath;
 using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Entries.Extensions;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.FileFormats.SDS.Resource.Types;
 using Core.IO.Streams;
 
@@ -34,107 +35,61 @@ namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class XmlEntry : IResourceEntry
 {
-    public static string Read(
-        ResourceEntry entry, 
-        XmlWriter writer, 
-        string name, 
-        string path,
-        Endian endian)
-    {
-        XmlResource resource;
-
-        using (var stream = new MemoryStream(entry.Data!))
-        {
-            // Unpack our XML Resource.
-            resource = XmlResource.Deserialize(entry.Version, stream, endian);
-            name = resource.Name;
-
-            // Create the directories.
-            string pathToCreate = Path.Join(path, name);
-            Directory.CreateDirectory(Path.GetDirectoryName(pathToCreate)!);
-
-            // Set the filename we want to save the file too.
-            string fileName = Path.Join(path, Path.GetFileName(name) + ".xml");
-
-            if (resource.HasFailedToDecompile)
-            {
-                byte[] data = stream.ReadBytes((int)(stream.Length - stream.Position));
-                File.WriteAllBytes(fileName, data);
-            }
-            else
-            {
-                // 08/08/2020. Originally was File.WriteAllText, but caused problems with some XML documents.
-                using var streamWriter = new StreamWriter(File.Open(fileName, FileMode.Create));
-                streamWriter.WriteLine(resource.Content);
-            }
-        }
-
-        writer.WriteElementString("File", name);
-        writer.WriteElementString("XMLTag", resource.Tag);
-        writer.WriteElementString("Unk1", Convert.ToByte(resource.Unk1).ToString());
-        writer.WriteElementString("Unk3", Convert.ToByte(resource.Unk3).ToString());
-        writer.WriteElementString("FailedToDecompile", Convert.ToByte(resource.HasFailedToDecompile).ToString());
-        writer.WriteElementString("Version", entry.Version.ToString());
-        writer.WriteEndElement(); //finish early.
-        return name;
-    }
-
-    public static ResourceEntry Write(
-        ResourceEntry entry, 
-        XPathNodeIterator nodes,
-        XmlNode sourceDataDescriptionNode,
-        string path, 
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
+        string name,
         Endian endian
     )
     {
-        if (nodes.Current is null)
+        XmlResource resource;
+
+        using (var stream = new MemoryStream(resourceEntry.Data!))
         {
-            throw new NullReferenceException("Current node from node iterator is null");
+            resource = XmlResource.Deserialize(resourceEntry.Version, stream, endian);
         }
-        
-        nodes.Current.MoveToNext();
-        string file = nodes.Current.Value;
-        sourceDataDescriptionNode.InnerText = file;
 
-        nodes.Current.MoveToNext();
-        string tag = nodes.Current.Value;
+        name = resource.Name + ".xml"; // TODO Check if extension or path is valid
 
-        nodes.Current.MoveToNext();
-        bool unk1 = nodes.Current.ValueAsBoolean;
+        ManifestEntryDescriptors resourceDescriptors = ManifestEntryDescriptors.FromResource(resource);
+        resourceDescriptors.AddFileName(name);
 
-        nodes.Current.MoveToNext();
-        bool unk3 = nodes.Current.ValueAsBoolean;
-
-        nodes.Current.MoveToNext();
-        bool failedToDecompile = nodes.Current.ValueAsBoolean;
-
-        //need to do version early.
-        nodes.Current.MoveToNext();
-        entry.Version = Convert.ToUInt16(nodes.Current.Value);
-
-        using var stream = new MemoryStream();
-
-        var resource = new XmlResource
+        return new EntryDeserializeResult
         {
-            Name = file,
-            Content = Path.Join(path, file + ".xml"),
-            Tag = tag,
-            Unk1 = unk1,
-            Unk3 = unk3,
-            HasFailedToDecompile = failedToDecompile
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = new[] { new DataDescriptor(name, resource.Data) } // TODO check if all data descriptor return resourceData ?
+        };
+    }
+
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
+        string path,
+        Endian endian
+    )
+    {
+        var resource = manifestEntry.Descriptors.ToResource<XmlResource>();
+        string filename = manifestEntry.Descriptors.GetFilename()!;
+        ushort version = manifestEntry.MetaData.Version;
+        
+        string pathToRead = Path.Join(path, filename);
+        resource.Data = File.ReadAllBytes(pathToRead);
+
+        var resourceEntry = new ResourceEntry
+        {
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash // TODO compute that
         };
 
-        resource.Serialize(entry.Version, stream, endian);
-
-        if (resource.Unk3)
+        using (var stream = new MemoryStream())
         {
-            entry.Data = stream.ToArray();
-        }
-        else
-        {
-            entry.Data = stream.ToArray();
+            resource.Serialize(version, stream, endian);
+            resourceEntry.Data = stream.ToArray();
         }
 
-        return entry;
+        return new EntrySerializeResult
+        {
+            DataDescriptor = filename.RemoveExtension(),
+            ResourceEntry = resourceEntry
+        };
     }
 }

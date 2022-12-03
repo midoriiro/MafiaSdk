@@ -1,4 +1,5 @@
-﻿using Core.IO.Streams;
+﻿using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
+using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
 
@@ -8,17 +9,19 @@ public class XBinResource : IResourceType<XBinResource>
     //header
     public ulong Unk01 { get; set; }
     public int Size { get; set; }
-    public byte[] Data { get; set; }
+    [IgnoreFieldDescriptor]
+    public byte[] Data { get; set; } = null!;
 
     //near the end
     public uint Unk02 { get; set; }
     public ulong Unk03 { get; set; }
-    public string Unk04 { get; set; }
+    public string Unk04 { get; set; } = null!;
     public ulong Hash { get; set; }
-    public string Name { get; set; }
+    public string Name { get; set; } = null!;
+    [IgnoreFieldDescriptor]
     public byte[]? XmlData { get; set; }
 
-    internal XBinResource()
+    private XBinResource()
     {
     }
 
@@ -32,6 +35,14 @@ public class XBinResource : IResourceType<XBinResource>
         stream.WriteStringU32(Unk04, endian);
         stream.WriteValueU64(Hash, endian);
         stream.WriteStringU32(Name, endian);
+
+        if (XmlData is null)
+        {
+            return;
+        }
+
+        stream.WriteValueU64((ulong)XmlData.Length, endian);
+        stream.WriteBytes(XmlData);
     }
     
     public static XBinResource Deserialize(ushort version, Stream stream, Endian endian)
@@ -47,13 +58,14 @@ public class XBinResource : IResourceType<XBinResource>
 
         byte[]? xmlData = default;
 
+        // ReSharper disable once InvertIf
         if(stream.Position != stream.Length)
         {
             ulong xmlSize = stream.ReadValueU64(endian);
             xmlData = stream.ReadBytes((int)xmlSize);
         }
 
-        return new XBinResource()
+        return new XBinResource
         {
             Unk01 = unk01,
             Size = size,

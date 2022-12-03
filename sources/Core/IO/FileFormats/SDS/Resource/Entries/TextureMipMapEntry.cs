@@ -24,10 +24,10 @@
 //SEE ORIGINAL CODE HERE::
 //https://github.com/gibbed/Gibbed.Illusion
 
-using System.Xml;
-using System.Xml.XPath;
-using Core.IO.FileFormats.Hashing;
 using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Entries.Extensions;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.FileFormats.SDS.Resource.Types;
 using Core.IO.Streams;
 
@@ -35,56 +35,63 @@ namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class TextureMipMapEntry : IResourceEntry
 {
-    public static string? Read(
-        ResourceEntry entry,
-        XmlWriter writer,
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
         string name,
-        string path,
         Endian endian
     )
     {
-        using var stream = new MemoryStream(entry.Data!);
-        TextureResource resource = TextureResource.DeserializeMipMap(entry.Version, stream, endian);
-        writer.WriteElementString("File", "MIP_" + name);
-        entry.Data = resource.Data;
-        return null;
+        TextureResource resource;
+
+        using (var stream = new MemoryStream(resourceEntry.Data!))
+        {
+            resource = TextureResource.DeserializeMipMap(resourceEntry.Version, stream, endian);
+        }
+            
+        name = "MIP_" + name; // TODO Check if extension or path is valid
+
+        ManifestEntryDescriptors resourceDescriptors = ManifestEntryDescriptors.FromResource(resource);
+        resourceDescriptors.AddFileName(name);
+
+        return new EntryDeserializeResult
+        {
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = new[] { new DataDescriptor(name, resource.Data) }
+        };
     }
 
-    public static ResourceEntry Write(
-        ResourceEntry entry,
-        XPathNodeIterator nodes,
-        XmlNode sourceDataDescriptionNode,
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
         string path,
         Endian endian
     )
     {
-        if (nodes.Current is null)
+        var resource = manifestEntry.Descriptors.ToResource<TextureResource>();
+        string filename = manifestEntry.Descriptors.GetFilename()!;
+        ushort version = manifestEntry.MetaData.Version;
+        
+        string pathToRead = Path.Join(path, filename);
+        resource.Data = File.ReadAllBytes(pathToRead);
+
+        var resourceEntry = new ResourceEntry
         {
-            throw new NullReferenceException("Current node from node iterator is null");
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash // TODO compute that
+        };
+
+        using (var stream = new MemoryStream())
+        {
+            resource.SerializeMipMap(version, stream, endian);
+            resourceEntry.Data = stream.ToArray();
         }
-        
-        //texture data storage.
-        using var stream = new MemoryStream();
 
-        //get xml stuff
-        nodes.Current.MoveToNext();
-        string file = nodes.Current.Value;
-        nodes.Current.MoveToNext();
-        entry.Version = Convert.ToUInt16(nodes.Current.Value);
-        
-        string pathToRead = Path.Join(path, file);
-        byte[] data = File.ReadAllBytes(pathToRead);
-        var resource = new TextureResource(
-            FNV64.Hash(file.Remove(0, 4)), 
-            0, 
-            data
-        );
-        
-        resource.SerializeMipMap(entry.Version, stream, Endian.Little);
-
-        //finish.
-        sourceDataDescriptionNode.InnerText = file.Remove(0, 4);
-        entry.Data = stream.ToArray();
-        return entry;
+        return new EntrySerializeResult
+        {
+            DataDescriptor = filename
+                .Replace("MIP_", string.Empty)
+                .RemoveDeduplicationMark(),
+            ResourceEntry = resourceEntry
+        };
     }
 }

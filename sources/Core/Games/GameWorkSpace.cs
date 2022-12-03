@@ -4,7 +4,7 @@ public class GameWorkSpace
 {
     private static GameWorkSpace? _instance;
 
-    private string _backupFolderPath;
+    private readonly string _backupFolderPath;
     
     public Game SelectedGame { get; }
     
@@ -33,6 +33,21 @@ public class GameWorkSpace
     )
     {
         return _instance ??= new GameWorkSpace(selectedGame, installationPath, workSpacePath);
+    }
+
+    public static GameWorkSpace Find(
+        GamesEnumerator selectedGame,
+        string workSpacePath
+    )
+    {
+        var driveInfos = DriveInfo
+            .GetDrives()
+            .Where(drive => drive.DriveType == DriveType.Fixed)
+            .ToArray();
+
+        string installationPath = Game.FindInstallationPath(driveInfos, selectedGame);
+
+        return Create(selectedGame, installationPath, workSpacePath);
     }
 
     public static GameWorkSpace Instance()

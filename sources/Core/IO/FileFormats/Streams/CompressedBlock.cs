@@ -1,4 +1,5 @@
 ﻿using System.IO.Compression;
+using Core.Games;
 using Core.IO.Compression.Oodle;
 using Core.IO.Streams;
 using ZLibStream = Core.IO.Compression.Zlib.Streams.ZLibStream;
@@ -21,6 +22,19 @@ internal class CompressedBlock : Block
         _isOodle = isOodle;
         _isLoaded = false;
         _data = null;
+
+        if (!_isOodle)
+        {
+            return;
+        }
+
+        string libraryLocation = GameWorkSpace.Instance().SelectedGame.InstallationPath;
+        bool isDllResolved = OodleDllResolver.TryResolveFrom(libraryLocation);
+
+        if (!isDllResolved)
+        {
+            throw new InvalidOperationException($"Cannot resolve Oodle DLL from path '{libraryLocation}'");
+        }
     }
 
     public override void FreeLoadedData()
@@ -35,10 +49,7 @@ internal class CompressedBlock : Block
         {
             return true;
         }
-
-        // Now that the engine supports both Zlib and Oodle, we need to know the type of block.
-        // With M1: DE, we do this by adding a simple flag to the block which will be initialised
-        // during the blocks construction.
+        
         if (_isOodle)
         {
             input.Seek(_dataOffset + 96, SeekOrigin.Begin);
@@ -51,6 +62,7 @@ internal class CompressedBlock : Block
             _data = new byte[Size];
             using var stream = new ZLibStream(input, CompressionMode.Decompress, true);
             int length = stream.Read(_data, 0, _data.Length);
+            
             if (length != _data.Length)
             {
                 throw new InvalidOperationException();

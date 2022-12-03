@@ -20,14 +20,13 @@
  *    distribution.
  */
 
-namespace Core.IO.FileFormats.SDS.Archive
+namespace Core.IO.FileFormats.SDS.Archive;
+
+public enum Platform : uint
 {
-    public enum Platform : uint
-    {
-        // ReSharper disable InconsistentNaming
-        PC = 0x50430000, // 'PC\0\0'
-        Xbox360 = 1479751216, // 'X360'
-        PS3 = 1347629824, // 'PS3\0'
-        // ReSharper restore InconsistentNaming
-    }
+    // ReSharper disable InconsistentNaming
+    PC = 0x50430000, // 'PC\0\0'
+    Xbox360 = 1479751216, // 'X360'
+    PS3 = 1347629824 // 'PS3\0'
+    // ReSharper restore InconsistentNaming
 }

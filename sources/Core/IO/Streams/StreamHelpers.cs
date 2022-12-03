@@ -24,11 +24,14 @@ namespace Core.IO.Streams;
 
 public static partial class StreamHelpers
 {
+    private static readonly Dictionary<Stream, List<long>> Steps = new ();
+
     internal static bool ShouldSwap(Endian endian)
     {
         return endian switch
         {
             Endian.Little => BitConverter.IsLittleEndian == false,
+            // ReSharper disable once RedundantBoolCompare
             Endian.Big => BitConverter.IsLittleEndian == true,
             _ => throw new ArgumentException("Unsupported endianness", nameof(endian))
         };
@@ -86,5 +89,61 @@ public static partial class StreamHelpers
     public static void WriteBytes(this Stream stream, byte[] data)
     {
         stream.Write(data, 0, data.Length);
+    }
+
+    public static void StepIn(this Stream stream, long offset, SeekOrigin origin = SeekOrigin.Begin)
+    {
+        if (!Steps.ContainsKey(stream))
+        {
+            Steps.Add(stream, new List<long>());
+        }
+        
+        Steps[stream].Add(stream.Position);
+        stream.Seek(offset, origin);
+    }
+
+    public static void StepOut(this Stream stream)
+    {
+        if (!Steps.ContainsKey(stream))
+        {
+            throw new InvalidOperationException("Cannot step out from a stream that never step in");
+        }
+
+        long step = Steps[stream].TakeLast(1).Single();
+        stream.Seek(step, SeekOrigin.Begin);
+    }
+
+    public static byte[] Peek(this Stream stream, int length)
+    {
+        if (length <= 1)
+        {
+            throw new ArgumentException("Cannot be equal to 1 or below 0", nameof(length));
+        }
+        
+        byte[] value = stream.ReadBytes(length);
+        stream.Seek(-length, SeekOrigin.Current);
+        return value;
+    }
+    
+    public static int Peek(this Stream stream)
+    {
+        int value = stream.ReadByte();
+        stream.Seek(-1, SeekOrigin.Current);
+        return value;
+    }
+
+    public static void AlignTo(this Stream stream, uint alignment)
+    {
+        if (alignment <= 0)
+        {
+            throw new ArgumentException("Cannot align when distance is equal or below 0", nameof(alignment));
+        }
+
+        long distance = alignment - stream.Position % alignment;
+
+        if (distance != alignment)
+        {
+            stream.Seek(distance, SeekOrigin.Current);
+        }
     }
 }

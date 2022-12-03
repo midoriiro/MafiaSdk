@@ -24,7 +24,7 @@ namespace Core.IO.Streams;
 
 internal static class SmallWorkBuffer
 {
-    public const int BufferSize = 8;
+    private const int BufferSize = 8;
 
     private static readonly ThreadLocal<byte[]> Buffer = new(() => new byte[BufferSize]);
 
@@ -43,12 +43,15 @@ internal static class SmallWorkBuffer
         {
             throw new ArgumentOutOfRangeException(nameof(count));
         }
+        
         byte[] buffer = Buffer.Value!;
         int read = stream.Read(buffer, 0, count);
+        
         if (read != count)
         {
             throw new EndOfStreamException();
         }
+        
         return buffer;
     }
 }

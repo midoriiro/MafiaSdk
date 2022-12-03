@@ -8,13 +8,24 @@ public abstract class File
     public FileInfo FileInfo { get; }
     public Directory ParentDirectory { get; }
     public string Extension { get; }
-
-    protected File(FileInfo fileInfo, Directory parentDirectory)
+    protected abstract string DefinedExtension { get; }
+    
+    protected File(FileInfo fileInfo)
     {
         FileInfo = fileInfo;
-        ParentDirectory = parentDirectory;
+        ParentDirectory = new Directory(FileInfo.Directory!);
         ParentDirectory.AddFile(this);
-        Extension = fileInfo.Extension.Replace(".", "").ToUpper();
+        Extension = fileInfo.Extension.Replace(".", "");
+
+
+        // ReSharper disable once VirtualMemberCallInConstructor
+        if (Extension != DefinedExtension)
+        {
+            throw new InvalidOperationException(
+                // ReSharper disable once VirtualMemberCallInConstructor
+                $"Extension '{Extension}' is different from defined extension '{DefinedExtension}'"
+            );
+        }
     }
 
     public string GetFileSizeAsString()

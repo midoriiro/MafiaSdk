@@ -20,14 +20,13 @@
  *    distribution.
  */
 
-using System.Diagnostics;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.Streams;
 
 public class BlockReaderStream : Stream
 {
-    public const uint Signature = 0x6C7A4555; // 'zlEU'
+    private const uint Signature = 0x6C7A4555; // 'zlEU'
         
     private readonly Stream _baseStream;
     private readonly List<Block> _blocks;
@@ -59,7 +58,7 @@ public class BlockReaderStream : Stream
         }
 
         long virtualOffset = 0;
-            
+
         while (true)
         {
             uint size = baseStream.ReadValueU32(endian);
@@ -75,11 +74,11 @@ public class BlockReaderStream : Stream
                 // TODO: Consider if we can check if this is still a valid header.
                 CompressedBlockHeader compressedBlockHeader = CompressedBlockHeader.Read(baseStream, endian);
                 var headerSize = (int)compressedBlockHeader.HeaderSize;
-                    
-                Debug.Assert(
-                    headerSize is (32 or 128), 
-                    "The compressed header is not equal to 32 or 128."
-                );
+
+                if (headerSize is not (32 or 128))
+                {
+                    throw new InvalidOperationException("The compressed header is not equal to 32 or 128.");
+                }
 
                 // Make sure the Size equals CompressedSize on the block header.
                 if (size - headerSize != compressedBlockHeader.CompressedSize)
@@ -96,7 +95,7 @@ public class BlockReaderStream : Stream
                     uint uncompressedSize = Math.Min(alignment, remainingUncompressedSize);
                     instance.AddCompressedBlock(
                         virtualOffset,
-                        uncompressedSize, //compressedBlockHeader.UncompressedSize,
+                        uncompressedSize,
                         compressedPosition,
                         compressedBlockHeader.Chunks[i],
                         isUsingOodleCompression
@@ -119,14 +118,6 @@ public class BlockReaderStream : Stream
         }
 
         return instance;
-    }
-
-    public void FreeLoadedBlocks()
-    {
-        foreach (Block block in _blocks)
-        {
-            block.FreeLoadedData();
-        }
     }
 
     private void AddUncompressedBlock(long virtualOffset, uint virtualSize, long dataOffset)
@@ -163,32 +154,6 @@ public class BlockReaderStream : Stream
         _currentBlock = block;
 
         return _currentBlock.Load(_baseStream);
-    }
-
-    public void SaveUncompressed(Stream output)
-    {
-        var data = new byte[1024];
-
-        long totalSize = _blocks.Max(candidate => candidate.Offset + candidate.Size);
-
-        output.SetLength(totalSize);
-
-        foreach (Block block in _blocks)
-        {
-            output.Seek(block.Offset, SeekOrigin.Begin);
-            Seek(block.Offset, SeekOrigin.Begin);
-
-            long total = block.Size;
-                
-            while (total > 0)
-            {
-                int read = Read(data, 0, (int)Math.Min(total, data.Length));
-                output.Write(data, 0, read);
-                total -= read;
-            }
-        }
-
-        output.Flush();
     }
 
     #region Stream
@@ -239,6 +204,7 @@ public class BlockReaderStream : Stream
 
     public override long Seek(long offset, SeekOrigin origin)
     {
+        // ReSharper disable once ConvertIfStatementToSwitchStatement
         if (origin == SeekOrigin.End)
         {
             throw new NotSupportedException();
@@ -253,14 +219,11 @@ public class BlockReaderStream : Stream
 
             offset = _currentPosition + offset;
         }
-
-        /*
-        :effort: in fixing seeks that hit the end of data instead of over it
+        
         if (LoadBlock(offset) == false)
         {
             throw new InvalidOperationException();
         }
-        */
 
         _currentPosition = offset;
         return _currentPosition;

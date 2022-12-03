@@ -24,51 +24,50 @@
 //SEE ORIGINAL CODE HERE::
 //https://github.com/gibbed/Gibbed.Illusion
 
-using System.Xml;
-using System.Xml.XPath;
-using Core.IO.FileFormats.Hashing;
 using Core.IO.FileFormats.SDS.Archive;
-using Core.IO.FileFormats.SDS.Resource.Types;
+using Core.IO.FileFormats.SDS.Resource.Entries.Extensions;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class AnimatedTextureEntry : IResourceEntry
 {
-    public static string? Read(
-        ResourceEntry entry,
-        XmlWriter writer,
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
         string name,
-        string path,
         Endian endian
     )
     {
         throw new NotImplementedException();
     }
 
-    public static ResourceEntry Write(
-        ResourceEntry entry,
-        XPathNodeIterator nodes,
-        XmlNode sourceDataDescriptionNode,
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
         string path,
         Endian endian
     )
     {
-        if (nodes.Current is null)
-        {
-            throw new NullReferenceException("Current node from node iterator is null");
-        }
-        
-        //get data from xml
-        nodes.Current.MoveToNext();
-        string file = nodes.Current.Value;
-        nodes.Current.MoveToNext();
-        entry.Version = Convert.ToUInt16(nodes.Current.Value);
+        string filename = manifestEntry.Descriptors.GetFilename()!;
 
-        //finish
-        string pathToRead = Path.Join(path, file);
-        entry.Data = File.ReadAllBytes(pathToRead);
-        sourceDataDescriptionNode.InnerText = file;
-        return entry;
+        string pathToRead = Path.Join(path, filename);
+        byte[] data = File.ReadAllBytes(pathToRead);
+        
+        var resourceEntry = new ResourceEntry
+        {
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash, // TODO compute that
+            Data = data,
+            SlotRamRequired = manifestEntry.MetaData.SlotRamRequired, // TODO find correct value
+            OtherRamRequired = manifestEntry.MetaData.OtherRamRequired // TODO find correct value
+        };
+
+        return new EntrySerializeResult
+      {
+            DataDescriptor = filename.RemoveExtension(),
+            ResourceEntry = resourceEntry
+        };
     }
 }

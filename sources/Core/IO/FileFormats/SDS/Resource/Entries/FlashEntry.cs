@@ -1,6 +1,6 @@
-﻿using System.Xml;
-using System.Xml.XPath;
-using Core.IO.FileFormats.SDS.Archive;
+﻿using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.FileFormats.SDS.Resource.Types;
 using Core.IO.Streams;
 
@@ -8,72 +8,61 @@ namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class FlashEntry : IResourceEntry
 {
-    public static string Read(
-        ResourceEntry entry, 
-        XmlWriter writer, 
-        string name, 
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
+        string name,
+        Endian endian
+    )
+    {
+        FlashResource resource;
+        
+        using (var stream = new MemoryStream(resourceEntry.Data!))
+        {
+            resource = FlashResource.Deserialize(resourceEntry.Version, stream, endian);
+        }
+
+        name = resource.FileName; // TODO Check if extension or path is valid 
+
+        ManifestEntryDescriptors resourceDescriptors = ManifestEntryDescriptors.FromResource(resource);
+        resourceDescriptors.AddFileName(name);
+
+        return new EntryDeserializeResult
+        {
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = new[] { new DataDescriptor(name, resource.Data) }
+        };
+    }
+
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
         string path,
         Endian endian
     )
     {
-        // Read the resource first; we have the nicety of having the flash name stored 
-        // in the meta info.
-        FlashResource resource;
+        var resource = manifestEntry.Descriptors.ToResource<FlashResource>();
+        string filename = manifestEntry.Descriptors.GetFilename()!;
+        ushort version = manifestEntry.MetaData.Version;
         
-        using (var stream = new MemoryStream(entry.Data!))
-        {
-            resource = FlashResource.Deserialize(entry.Version, stream, endian);
-            entry.Data = resource.Data;
-        }
-
-        // Since we know that flash will have the filename, 
-        // we collect it from here instead.
-        if(string.IsNullOrEmpty(name))
-        {
-            name = resource.FileName;
-        }
-
-        Directory.CreateDirectory(Path.Join(path, Path.GetDirectoryName(name)!));
-        
-        writer.WriteElementString("File", name);
-        writer.WriteElementString("Name", resource.Name);
-
-        // In this case this is valid; we will no doubt get a name.
-        return name;
-    }
-
-    public static ResourceEntry Write(
-        ResourceEntry entry, 
-        XPathNodeIterator nodes, 
-        XmlNode sourceDataDescriptionNode, 
-        string path,
-        Endian endian)
-    {
-        if (nodes.Current is null)
-        {
-            throw new NullReferenceException("Current node from node iterator is null");
-        }
-        
-        var resource = new FlashResource();
-
-        //read contents from XML entry
-        nodes.Current.MoveToNext();
-        resource.FileName = nodes.Current.Value;
-        nodes.Current.MoveToNext();
-        resource.Name = nodes.Current.Value;
-        nodes.Current.MoveToNext();
-        entry.Version = (ushort)nodes.Current.ValueAsInt;
-
-        string pathToRead = Path.Join(path, resource.FileName);
+        string pathToRead = Path.Join(path, filename);
         resource.Data = File.ReadAllBytes(pathToRead);
+
+        var resourceEntry = new ResourceEntry
+        {
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash // TODO compute that
+        };
 
         using (var stream = new MemoryStream())
         {
-            resource.Serialize(entry.Version, stream, endian);
-            entry.Data = stream.ToArray();
+            resource.Serialize(version, stream, endian);
+            resourceEntry.Data = stream.ToArray();
         }
 
-        sourceDataDescriptionNode.InnerText = resource.FileName;
-        return entry;
+        return new EntrySerializeResult
+        {
+            DataDescriptor = filename,
+            ResourceEntry = resourceEntry
+        };
     }
 }

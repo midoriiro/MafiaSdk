@@ -24,9 +24,9 @@ using System.Text;
 
 namespace Core.IO.FileFormats.Hashing;
 
-public static class FNV64
+public static class Fnv64
 {
-    public const ulong Initial = 0xCBF29CE484222325;
+    private const ulong Initial = 0xCBF29CE484222325;
 
     public static ulong Hash(string value)
     {

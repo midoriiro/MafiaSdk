@@ -4,8 +4,8 @@ namespace Core.IO.Compression.Oodle;
 
 public static class Oodle
 {
-    [DllImport("oo2core_3_win64.dll")]
-    private static extern int NativeCompress(
+    [DllImport("oo2core_8_win64.dll")]
+    private static extern int OodleLZ_Compress(
         OodleFormat format, 
         byte[] buffer, 
         long bufferSize, 
@@ -16,8 +16,8 @@ public static class Oodle
         uint unused3
     );
 
-    [DllImport("oo2core_3_win64.dll")]
-    private static extern int NativeDecompress(
+    [DllImport("oo2core_8_win64.dll")]
+    private static extern int OodleLZ_Decompress(
         byte[] buffer, 
         long bufferSize, 
         byte[] outputBuffer, 
@@ -39,7 +39,7 @@ public static class Oodle
         uint compressedBufferSize = GetCompressionBound((uint)size);
         var compressedBuffer = new byte[compressedBufferSize];
 
-        int compressedCount = NativeCompress(format, buffer, size, compressedBuffer, level, 0, 0, 0);
+        int compressedCount = OodleLZ_Compress(format, buffer, size, compressedBuffer, level, 0, 0, 0);
 
         var outputBuffer = new byte[compressedCount];
         Buffer.BlockCopy(compressedBuffer, 0, outputBuffer, 0, compressedCount);
@@ -50,7 +50,7 @@ public static class Oodle
     public static byte[] Decompress(byte[] buffer, int size, int uncompressedSize)
     {
         var decompressedBuffer = new byte[uncompressedSize];
-        int decompressedCount = NativeDecompress(
+        int decompressedCount = OodleLZ_Decompress(
             buffer, 
             size, 
             decompressedBuffer, 
@@ -66,7 +66,7 @@ public static class Oodle
             0, 
             3
         );
-
+        
         if (decompressedCount == uncompressedSize)
         {
             return decompressedBuffer;
@@ -76,6 +76,7 @@ public static class Oodle
         {
             return decompressedBuffer.Take(decompressedCount).ToArray();
         }
+        
         throw new Exception("There was an error while decompressing");
     }
 

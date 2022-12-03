@@ -24,11 +24,11 @@
 //SEE ORIGINAL CODE HERE::
 //https://github.com/gibbed/Gibbed.Illusion
 
-using System.Xml;
-using System.Xml.XPath;
 using Core.Games;
-using Core.IO.FileFormats.Hashing;
 using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Entries.Extensions;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.FileFormats.SDS.Resource.Types;
 using Core.IO.Streams;
 
@@ -36,120 +36,77 @@ namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class TextureEntry : IResourceEntry
 {
-    public static string Read(
-        ResourceEntry entry,
-        XmlWriter writer,
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
         string name,
-        string path,
         Endian endian
     )
     {
         TextureResource resource;
 
-        using (var stream = new MemoryStream(entry.Data!))
+        using (var stream = new MemoryStream(resourceEntry.Data!))
         {
-            resource = TextureResource.Deserialize(entry.Version, stream, endian);
+            resource = TextureResource.Deserialize(resourceEntry.Version, stream, endian);
         }
 
-        // TODO create global file names cache
-        // if (_TextureNames.ContainsKey(resource.NameHash))
-        // {
-        //     string fetchedName = _TextureNames[resource.NameHash];
-        //
-        //     if (!string.IsNullOrEmpty(fetchedName))
-        //     {
-        //         name = fetchedName;
-        //     }
-        // }
+        ManifestEntryDescriptors resourceDescriptors = ManifestEntryDescriptors.FromResource(resource);
+        resourceDescriptors.AddFileName(name);
 
-        writer.WriteElementString("File", name);
-
-        // We lack the file hash in M3 and M1: DE. So we have to add it to the file.
-        if (GameWorkSpace.Instance().SelectedGame.Type is GamesEnumerator.Mafia1DefinitiveEdition or GamesEnumerator.Mafia3)
+        return new EntryDeserializeResult
         {
-            writer.WriteElementString("FileHash", resource.NameHash.ToString());
-        }
-
-        writer.WriteElementString("HasMIP", resource.HasMipMap.ToString());
-        entry.Data = resource.Data;
-        return name;
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = new[] { new DataDescriptor(name, resource.Data) }
+        };
     }
 
-    public static ResourceEntry Write(
-        ResourceEntry entry,
-        XPathNodeIterator nodes,
-        XmlNode sourceDataDescriptionNode,
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
         string path,
         Endian endian
     )
     {
-        // We lack the file hash in M3 and M1: DE. So we have to get it from the file.
-        bool isFusionGame = GameWorkSpace.Instance().SelectedGame.Type is GamesEnumerator.Mafia1DefinitiveEdition or GamesEnumerator.Mafia3;
-
-        if (nodes.Current is null)
-        {
-            throw new NullReferenceException("Current node from node iterator is null");
-        }
-
-        //read from xml.
-        nodes.Current.MoveToNext();
-        string file = nodes.Current.Value;
-        nodes.Current.MoveToNext();
-
-        ulong hash = 0;
+        var resource = manifestEntry.Descriptors.ToResource<TextureResource>();
+        string filename = manifestEntry.Descriptors.GetFilename()!;
+        ushort version = manifestEntry.MetaData.Version;
         
-        if (isFusionGame)
+        string pathToRead = Path.Join(path, filename);
+        resource.Data = File.ReadAllBytes(pathToRead);
+
+        var resourceEntry = new ResourceEntry
         {
-            var hashString = nodes.Current.ToString();
-            hash = Convert.ToUInt64(hashString);
-            nodes.Current.MoveToNext();
-        }
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash // TODO compute that
+        };
 
-        var hasMip = Convert.ToByte(nodes.Current.Value);
-        nodes.Current.MoveToNext();
-
-        // Setup ResourceEntry MetaInfo.
-        entry.Version = Convert.ToUInt16(nodes.Current.Value);
-        sourceDataDescriptionNode.InnerText = file;
-
-        // Begin serialising the Texture Resource.
-
-        // Create stream.
-        using var stream = new MemoryStream();
-        // Read the Texture file (.DDS).
-        string pathToRead = Path.Join(path, file);
-        byte[] data = File.ReadAllBytes(pathToRead);
-        var resource = new TextureResource(FNV64.Hash(file), hasMip, data);
-
-        // Do Version specific handling;
-        if (isFusionGame)
+        using (var stream = new MemoryStream())
         {
-            resource.NameHash = hash;
+            resource.Serialize(version, stream, endian);
+            resourceEntry.Data = stream.ToArray();
         }
-
-        // Serialise to the TextureResource and pack it into the ResourceEntry.
-        resource.Serialize(entry.Version, stream, endian);
-        entry.Data = stream.ToArray();
-
-        // Configure VRAM information for the SDS.
+        
         if (GameWorkSpace.Instance().SelectedGame.Type is GamesEnumerator.Mafia2 or GamesEnumerator.Mafia2DefinitiveEdition)
         {
-            entry.SlotVramRequired = (uint)(data.Length - 128);
-            //if (hasMIP == 1)
-            //{
-            //    using (BinaryReader reader = new BinaryReader(File.Open(sdsFolder + "/MIP_" + file, FileMode.Open)))
-            //        entry.SlotVramRequired += (uint)(reader.BaseStream.Length - 128);
-            //}
+            resourceEntry.SlotVramRequired = manifestEntry.MetaData.SlotVramRequired;
+            // TODO
+            // resourceEntry.SlotVramRequired = (uint)(resource.Data.Length - 128);
+            //
+            // if (resource.HasMipMap)
+            // {
+            //     var fileInfo = new FileInfo(Path.Join(path, $"MIP_{filename}"));
+            //     resourceEntry.SlotVramRequired += (uint)fileInfo.Length - 128;
+            // }
         }
-
-        if (GameWorkSpace.Instance().SelectedGame.Type != GamesEnumerator.Mafia1DefinitiveEdition)
+        else
         {
-            return entry;
+            int size = resource.IsDirectX10 ? 157 : 137;
+            resourceEntry.SlotVramRequired = manifestEntry.MetaData.SlotVramRequired; // TODO find correct value
         }
 
-        int size = (resource.IsDirectX10 ? 157 : 137);
-        entry.SlotVramRequired = (uint)(stream.Length - size);
-
-        return entry;
+        return new EntrySerializeResult
+        {
+            DataDescriptor = filename.RemoveDeduplicationMark(),
+            ResourceEntry = resourceEntry
+        };
     }
 }

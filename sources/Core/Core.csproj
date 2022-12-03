@@ -9,23 +9,17 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <RuntimeHostConfigurationOption Include="SubdirectoriesToProbe" Value="\\libs\\" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <Content Include="libs/oo2core_3_win64.dll">
-            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-        </Content>
-    </ItemGroup>
-
-    <ItemGroup>
-      <None Update="Resources\Caches\M3DE_ResourceNameDatabase.txt">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <None Update="Resources\Caches\M3_Resources.txt">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="Resources\Caches\XBin_Hashes.txt">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="Resources\Caches\M2_Textures.txt">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="Resources\Caches\M1_Textures.txt">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
     </ItemGroup>
-
-    <ItemGroup>
-      <Folder Include="IO\ResourceFormats" />
-    </ItemGroup>
-
 </Project>

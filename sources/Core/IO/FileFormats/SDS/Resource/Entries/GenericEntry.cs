@@ -1,6 +1,6 @@
-﻿using System.Xml;
-using System.Xml.XPath;
-using Core.IO.FileFormats.SDS.Archive;
+﻿using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.FileFormats.SDS.Resource.Types;
 using Core.IO.Streams;
 
@@ -8,76 +8,67 @@ namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class GenericEntry : IResourceEntry
 {
-    public static string Read(
-        ResourceEntry entry, 
-        XmlWriter writer, 
-        string name, 
-        string path, 
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
+        string name,
         Endian endian
     )
     {
         GenericResource resource;
 
-        // Read generic resource
-        using(var stream = new MemoryStream(entry.Data!))
+        using(var stream = new MemoryStream(resourceEntry.Data!))
         {
-            resource = GenericResource.Deserialize(entry.Version, stream, endian);
+            resource = GenericResource.Deserialize(resourceEntry.Version, stream, endian);
         }
-        
-        name = resource.DetermineName(entry, name);
 
-        // Construct the path and attempt to save the data.
-        string pathToWrite = Path.Join(path, name);
-        Directory.CreateDirectory(Path.GetDirectoryName(pathToWrite)!);
-        File.WriteAllBytes(pathToWrite, resource.Data);
+        if (!name.Contains("file_"))
+        {
+            name = resource.DetermineName(resourceEntry, name);
+        }
 
-        // Write to SDSContent.
-        writer.WriteElementString("File", name);
-        writer.WriteElementString("Generic_Unk01", resource.Unk0.ToString());
-        writer.WriteElementString("Version", entry.Version.ToString());
-        writer.WriteEndElement();
-        return name;
+        ManifestEntryDescriptors resourceDescriptors = ManifestEntryDescriptors.FromResource(resource);
+        resourceDescriptors.AddFileName(name);
+
+        return new EntryDeserializeResult
+        {
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = new[] { new DataDescriptor(name, resource.Data) }
+        };
     }
 
-    public static ResourceEntry Write(
-        ResourceEntry entry, 
-        XPathNodeIterator nodes, 
-        XmlNode sourceDataDescriptionNode,
-        string path, 
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
+        string path,
         Endian endian
     )
     {
-        // TODO create method to ensure current is always not null when calling MoveToNext() method
-        if (nodes.Current is null)
-        {
-            throw new NullReferenceException("Current node from node iterator is null");
-        }
+        var resource = manifestEntry.Descriptors.ToResource<GenericResource>();
+        string filename = manifestEntry.Descriptors.GetFilename()!;
+        ushort version = manifestEntry.MetaData.Version;
         
-        // Create new resource
-        var resource = new GenericResource();
-
-        // Fetch data from XML
-        nodes.Current.MoveToNext();
-        resource.DebugName = nodes.Current.Value;
-        nodes.Current.MoveToNext();
-        resource.Unk0 = (ushort)nodes.Current.ValueAsInt;
-        nodes.Current.MoveToNext();
-        entry.Version = (ushort)nodes.Current.ValueAsInt;
-
-        // Read data and serialize into the resource format.
-        string pathToRead = Path.Join(path, resource.DebugName);
+        string pathToRead = Path.Join(path, filename);
         resource.Data = File.ReadAllBytes(pathToRead);
-        
-        using(var stream = new MemoryStream())
+
+        var resourceEntry = new ResourceEntry
         {
-            resource.Serialize(entry.Version, stream, endian);
-            entry.Data = stream.ToArray();
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash // TODO compute that
+        };
+
+        using (var stream = new MemoryStream())
+        {
+            resource.Serialize(version, stream, endian);
+            resourceEntry.Data = stream.ToArray();
         }
 
-        int extensionStart = resource.DebugName.IndexOf(".", StringComparison.Ordinal);
-        string filename = resource.DebugName.Remove(extensionStart);
-        sourceDataDescriptionNode.InnerText = "Not Available";
+        // TODO find a solution to retrieve correct value
+        resourceEntry.OtherRamRequired = manifestEntry.MetaData.OtherRamRequired;
 
-        return entry;
+        return new EntrySerializeResult
+        {
+            DataDescriptor = resource.DebugName,
+            ResourceEntry = resourceEntry
+        };
     }
 }

@@ -20,9 +20,9 @@
  *    distribution.
  */
 
-using System.Xml;
-using System.Xml.XPath;
 using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.FileFormats.SDS.Resource.Types;
 using Core.IO.Streams;
 
@@ -30,113 +30,71 @@ namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class ScriptEntry : IResourceEntry
 {
-    public static bool DecompileScript { get; set; } = false;
-    
-    public static string Read(
-        ResourceEntry entry, 
-        XmlWriter writer, 
-        string name, 
-        string path, 
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
+        string name,
         Endian endian
     )
     {
         ScriptResource resource;
 
-        using (var stream = new MemoryStream(entry.Data!))
+        using (var stream = new MemoryStream(resourceEntry.Data!))
         {
-            resource = ScriptResource.Deserialize(entry.Version, stream, endian);
-        }
-
-        writer.WriteElementString("File", resource.Path);
-        writer.WriteElementString("ScriptNum", resource.Scripts.Count.ToString());
-
-        for (var x = 0; x != resource.Scripts.Count; x++)
-        {
-            // Get the script resource.
-            ScriptData scriptItem = resource.Scripts[x];
-
-            // Get directory and Script name.
-            string scriptDirectory = Path.GetDirectoryName(scriptItem.Name)!;
-            string scriptName = Path.GetFileName(scriptItem.Name);
-
-            // Create the new directory.
-            string newDirectory = Path.Join(path, scriptDirectory);
-            Directory.CreateDirectory(newDirectory);
-
-            // Write the script data to the designated file.
-            string scriptPath = Path.Join(newDirectory, scriptName);
-            File.WriteAllBytes(scriptPath, scriptItem.Data);
-
-            // If user requests, decompile the Lua file.
-            if (DecompileScript)
-            {                 
-                var info = new FileInfo(scriptPath);
-                // TODO create lua decompiler
-                // FileLua luaFile = new FileLua(info);
-                // luaFile.TryDecompileBytecode();
-            }
-
-            writer.WriteElementString("Name", scriptItem.Name);
+            resource = ScriptResource.Deserialize(resourceEntry.Version, stream, endian);
         }
         
-        writer.WriteElementString("Version", entry.Version.ToString());
-        writer.WriteEndElement(); // We finish early with scripts, as this has an alternate layout.
+        ManifestEntryDescriptors resourceDescriptors = ManifestEntryDescriptors.FromResource(resource);
+        resourceDescriptors.AddFileName(name);
 
-        return name;
+        var data = new DataDescriptor[resource.ScriptsCount];
+
+        for (var index = 0; index != resource.ScriptsCount; index++)
+        {
+            ScriptData script = resource.Scripts[index];
+            data[index] = new DataDescriptor(script.Name, script.Data); // TODO Check if extension or path is valid in name
+        }
+
+        return new EntryDeserializeResult
+        {
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = data
+        };
     }
 
-    public static ResourceEntry Write(
-        ResourceEntry entry, 
-        XPathNodeIterator nodes, 
-        XmlNode sourceDataDescriptionNode,
-        string path, 
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
+        string path,
         Endian endian
     )
     {
-        if (nodes.Current is null)
-        {
-            throw new NullReferenceException("Current node from node iterator is null");
-        }
-        
-        // Get data from Xml.
-        nodes.Current.MoveToNext();
-        string file = nodes.Current.Value;
-        nodes.Current.MoveToNext();
-        var numScripts = Convert.ToInt32(nodes.Current.Value);
+        var resource = manifestEntry.Descriptors.ToResource<ScriptResource>();
+        ushort version = manifestEntry.MetaData.Version;
 
-        // Create the new resource, add file.
-        var resource = new ScriptResource
+        for (var index = 0; index < resource.ScriptsCount; index++)
         {
-            Path = file
+            ScriptData script = resource.Scripts[index];
+            string pathToRead = Path.Join(path, script.Name);
+            script.Data = File.ReadAllBytes(pathToRead);
+        }
+
+        var resourceEntry = new ResourceEntry
+        {
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash, // TODO compute that
+            SlotRamRequired = manifestEntry.MetaData.SlotRamRequired // TODO find correct value
         };
 
-        // Iterate through scripts, reading each one and pushing them into the list.
-        for (var i = 0; i < numScripts; i++)
-        {
-            var data = new ScriptData();
-            nodes.Current.MoveToNext();
-            data.Name = nodes.Current.Value;
-            string pathToRead = Path.Join(path, data.Name);
-            data.Data = File.ReadAllBytes(pathToRead);
-            resource.Scripts.Add(data);
-        }
-
-        // Finish reading the Xml by getting the version.
-        nodes.Current.MoveToNext();
-        var version = Convert.ToUInt16(nodes.Current.Value);
-
-        // Create the stream and serialize the resource package into said stream.
-        using(var stream = new MemoryStream())
+        using (var stream = new MemoryStream())
         {
             resource.Serialize(version, stream, endian);
-            entry.Data = stream.ToArray();
-
-            entry.SlotRamRequired = resource.GetRawBytes();
+            resourceEntry.Data = stream.ToArray();
         }
 
-        // Set the entry version and setup the data for the meta info.
-        entry.Version = version;        
-        sourceDataDescriptionNode.InnerText = "Not Available";
-        return entry;
+        return new EntrySerializeResult
+        {
+            DataDescriptor = "not available",
+            ResourceEntry = resourceEntry
+        };
     }
 }

@@ -22,6 +22,7 @@
 
 
 using System.Text;
+using Core.IO.FileFormats.Hashing;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats;
@@ -30,14 +31,14 @@ public static class StreamHelpers
 {
     static StreamHelpers()
     {
-        Core.IO.Streams.StreamHelpers.DefaultEncoding = Encoding.UTF8;
+        IO.Streams.StreamHelpers.DefaultEncoding = Encoding.UTF8;
     }
 
     public static MemoryStream ReadToMemoryStreamSafe(this Stream stream, long size, Endian endian)
     {
         var output = new MemoryStream();
 
-        uint computedHash = Hashing.FNV32.Initial;
+        uint computedHash = Fnv32.Initial;
         long remaining = size;
         var buffer = new byte[4096];
             
@@ -51,7 +52,7 @@ public static class StreamHelpers
                 throw new EndOfStreamException();
             }
                 
-            computedHash = Hashing.FNV32.Hash(buffer, 0, block);
+            computedHash = Fnv32.Hash(buffer, 0, block);
             output.Write(buffer, 0, block);
             remaining -= block;
         }
@@ -73,7 +74,7 @@ public static class StreamHelpers
         input.Position = 0;
         byte[] buffer = input.GetBuffer();
         var length = (int)input.Length;
-        uint computedHash = Hashing.FNV32.Hash(buffer, 0, length);
+        uint computedHash = Fnv32.Hash(buffer, 0, length);
         stream.Write(buffer, 0, length);
         stream.WriteValueU32(computedHash, endian);
         input.Position = position;

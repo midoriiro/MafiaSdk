@@ -20,10 +20,9 @@
  *    distribution.
  */
 
-using System.Xml;
-using System.Xml.XPath;
-using Core.IO.FileFormats.Hashing;
 using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.FileFormats.SDS.Resource.Types;
 using Core.IO.Streams;
 
@@ -31,94 +30,72 @@ namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class TableEntry : IResourceEntry
 {
-    public static string Read(
-        ResourceEntry entry, 
-        XmlWriter writer, 
-        string name, 
-        string path, 
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
+        string name,
         Endian endian
     )
     {
         TableResource resource;
 
-        using (var stream = new MemoryStream(entry.Data!))
+        using (var stream = new MemoryStream(resourceEntry.Data!))
         {
-            resource = TableResource.Deserialize(entry.Version, stream, endian);
+            resource = TableResource.Deserialize(resourceEntry.Version, stream, endian);
         }
         
-        string pathToCreate = Path.Join(path, "tables");
-        Directory.CreateDirectory(pathToCreate);
+        ManifestEntryDescriptors resourceDescriptors = ManifestEntryDescriptors.FromResource(resource);
+        resourceDescriptors.AddFileName(name);
 
-        writer.WriteElementString("NumTables", resource.Tables.Count.ToString());
+        var data = new DataDescriptor[resource.TablesCount];
 
-        foreach (TableData data in resource.Tables)
+        for (var index = 0; index != resource.TablesCount; index++)
         {
-            //maybe we can get away with saving to version 1, and then converting to version 2 when packing?
-            using (var stream = new MemoryStream())
-            {
-                data.Serialize(1, stream, endian);
-                string pathToWrite = Path.Join(path, data.Name);
-                File.WriteAllBytes(pathToWrite, stream.ToArray());
-            }
-
-            writer.WriteElementString("Table", data.Name);
+            TableData table = resource.Tables[index];
+            data[index] = new DataDescriptor(table.Name, table.Data); // TODO Check if extension or path is valid in name
         }
 
-        return name;
+        return new EntryDeserializeResult
+        {
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = data
+        };
     }
 
-    public static ResourceEntry Write(
-        ResourceEntry entry, 
-        XPathNodeIterator nodes, 
-        XmlNode sourceDataDescriptionNode,
-        string path, 
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
+        string path,
         Endian endian
     )
     {
-        if (nodes.Current is null)
-        {
-            throw new NullReferenceException("Current node from node iterator is null");
-        }
+        var resource = manifestEntry.Descriptors.ToResource<TableResource>();
+        ushort version = manifestEntry.MetaData.Version;
         
-        var resource = new TableResource();
-
-        //number of tables
-        nodes.Current.MoveToNext();
-        int count = nodes.Current.ValueAsInt;
-
-        //read tables and add to resource.
-        for (var i = 0; i != count; i++)
+        for (var index = 0; index < resource.TablesCount; index++)
         {
-            //goto next and read file name.
-            nodes.Current.MoveToNext();
-            string file = nodes.Current.Value;
-
-            //create file data.
-            var data = new TableData();
-
-            //now read..
-            string pathToRead = Path.Join(path, file);
-            
-            using (var reader = new BinaryReader(File.Open(pathToRead, FileMode.Open)))
-            {
-                TableData.Deserialize(1, reader.BaseStream, endian);
-                data.Name = file;
-                data.NameHash = FNV64.Hash(data.Name);
-            }
-
-            resource.Tables.Add(data);
+            TableData table = resource.Tables[index];
+            string pathToRead = Path.Join(path, table.Name);
+            table.Data = File.ReadAllBytes(pathToRead);
         }
 
-        //get version, always 1 Mafia II (2010) is 1, Mafia: DE (2020) is 2.
-        nodes.Current.MoveToNext();
-        entry.Version = Convert.ToUInt16(nodes.Current.Value);
+        var resourceEntry = new ResourceEntry
+        {
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash, // TODO compute that
+            SlotRamRequired = manifestEntry.MetaData.SlotRamRequired, // TODO find correct value
+            OtherRamRequired = manifestEntry.MetaData.OtherRamRequired // TODO find correct value
+        };
 
-        //create a temporary memory stream, merge all data and then fill entry data.
-        using var stream = new MemoryStream();
-        resource.Serialize(entry.Version, stream, endian);
-        entry.Data = stream.ToArray();
-        entry.SlotRamRequired = (uint)entry.Data.Length + 128;
-        
-        return entry;
+        using (var stream = new MemoryStream())
+        {
+            resource.Serialize(version, stream, endian);
+            resourceEntry.Data = stream.ToArray();
+        }
+
+        return new EntrySerializeResult
+        {
+            DataDescriptor = "not available",
+            ResourceEntry = resourceEntry
+        };
     }
 }

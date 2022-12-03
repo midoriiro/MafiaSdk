@@ -2,25 +2,20 @@
 
 //THIS ISN'T GIBBED. BUT STILL USES GIBBED STUFF :)
 
+using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
 
 public class SoundResource : IResourceType<SoundResource>
 {
-    private byte[]? _data;
-
     public string Name { get; set; } = null!;
     public int FileSize { get; set; }
-    public byte[] Data {
-        get => _data!;
-        set {
-            _data = value;
-            FileSize = value.Length;
-        }
-    }
+    [IgnoreFieldDescriptor] 
+    public byte[] Data { get; set; } = null!;
 
-    internal SoundResource()
+    // TODO check constructors resources are private/internal ?
+    private SoundResource()
     {
     }
     
@@ -39,7 +34,7 @@ public class SoundResource : IResourceType<SoundResource>
         int fileSize = stream.ReadValueS32(endian);
         byte[] data = stream.ReadBytes(fileSize);
 
-        return new SoundResource()
+        return new SoundResource
         {
             Name = name,
             FileSize = fileSize,

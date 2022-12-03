@@ -1,6 +1,6 @@
-﻿using System.Xml;
-using System.Xml.XPath;
-using Core.IO.FileFormats.SDS.Archive;
+﻿using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.FileFormats.SDS.Resource.Types;
 using Core.IO.Streams;
 
@@ -10,86 +10,71 @@ namespace Core.IO.FileFormats.SDS.Resource.Entries;
 // This IS NOT for Mafia II. However it would be ideal if we could also support Mafia II.
 public class CutsceneEntry : IResourceEntry
 {
-    public static string? Read(
-        ResourceEntry entry, 
-        XmlWriter writer,
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
         string name,
-        string path, 
         Endian endian
     )
     {
         CutsceneResource resource;
 
-        using (var stream = new MemoryStream(entry.Data!))
+        using (var stream = new MemoryStream(resourceEntry.Data!))
         {
-            resource = CutsceneResource.Deserialize(entry.Version, stream, endian);
+            resource = CutsceneResource.Deserialize(resourceEntry.Version, stream, endian);
         }
-
-        // Write all EntityRecords to individual files
-        writer.WriteElementString("GCRNum", resource.GcrEntityRecords.Length.ToString());
         
-        foreach(CutsceneResource.GcrResource record in resource.GcrEntityRecords)
+        ManifestEntryDescriptors resourceDescriptors = ManifestEntryDescriptors.FromResource(resource);
+
+        var data = new DataDescriptor[resource.CutscenesCount];
+
+        for (var index = 0; index < resource.Cutscenes.Length; index++)
         {
-            string pathToWrite = Path.Join(path, record.Name);
-            Directory.CreateDirectory(Path.GetDirectoryName(pathToWrite)!);
-            File.WriteAllBytes(pathToWrite, record.Content);
-            writer.WriteElementString("Name", record.Name);
+            CutsceneData record = resource.Cutscenes[index];
+            data[index] = new DataDescriptor(record.Name, record.Data);
         }
 
-        writer.WriteElementString("Version", entry.Version.ToString());
-        writer.WriteEndElement();
-
-        return null;
+        return new EntryDeserializeResult
+        {
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = data
+        };
     }
 
-    public static ResourceEntry Write(
-        ResourceEntry entry, 
-        XPathNodeIterator nodes, 
-        XmlNode sourceDataDescriptionNode, 
-        string path, 
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
+        string path,
         Endian endian
     )
     {
-        if (nodes.Current is null)
-        {
-            throw new NullReferenceException("Current node from node iterator is null");
-        }
-        
-        // Read contents from SDSContent.xml
-        nodes.Current.MoveToNext();
-        int gcrCount = nodes.Current.ValueAsInt;
-        nodes.Current.MoveToNext();
+        var resource = manifestEntry.Descriptors.ToResource<CutsceneResource>();
+        ushort version = manifestEntry.MetaData.Version;
 
-        // construct new resource
-        var resource = new CutsceneResource()
+        for(var index = 0; index < resource.CutscenesCount; index++)
         {
-            GcrEntityRecords = new CutsceneResource.GcrResource[gcrCount]
+            CutsceneData cutscene = resource.Cutscenes[index];
+            string pathToRead = Path.Join(path, cutscene.Name);
+            cutscene.Data = File.ReadAllBytes(pathToRead);
+        }
+
+        var resourceEntry = new ResourceEntry
+        {
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash // TODO compute that
         };
-
-        for(var i = 0; i < gcrCount; i++)
-        {
-            string name = nodes.Current.Value;
-            var record = new CutsceneResource.GcrResource();
-
-            string combinedPath = Path.Join(path, name);
-            record.Name = name;
-            record.Content = File.ReadAllBytes(combinedPath);
-
-            nodes.Current.MoveToNext();
-
-            resource.GcrEntityRecords[i] = record;
-        }
-
-        ushort version = ushort.Parse(nodes.Current.Value);
 
         using (var stream = new MemoryStream())
         {
-            resource.Serialize(entry.Version, stream, endian);
-            entry.Data = stream.ToArray();
+            resource.Serialize(version, stream, endian);
+            resourceEntry.Data = stream.ToArray();
         }
 
-        entry.Version = version;
+        resourceEntry.SlotRamRequired = manifestEntry.MetaData.SlotRamRequired; // TODO find correct value
 
-        return entry;
+        return new EntrySerializeResult
+      {
+            DataDescriptor = "not available",
+            ResourceEntry = resourceEntry
+        };
     }
 }

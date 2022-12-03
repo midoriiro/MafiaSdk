@@ -20,8 +20,7 @@
  *    distribution.
  */
 
-using Core.IO.FileFormats.SDS.Resource.Types.Table;
-using Core.IO.FileFormats.SDS.Resource.Types.Table.Types;
+using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
@@ -30,14 +29,16 @@ public class TableData : IResourceType<TableData>
 {
     public ulong NameHash { get; set; }
     public string Name { get; set; } = null!;
+    public byte[]? UnkPatch0 { get; set; }
+    public string? UnkPatch1 { get; set; }
+    public byte[]? UnkPatch2 { get; set; }
+    public byte[]? Unk0 { get; set; }
     public uint Unk1 { get; set; }
     public uint Unk2 { get; set; }
+    [IgnoreFieldDescriptor]
     public byte[] Data { get; set; } = null!;
 
-    public List<Row> Rows { get; set; } = null!;
-    public List<Column> Columns { get; set; } = null!;
-
-    internal TableData()
+    private TableData()
     {
     }
 
@@ -48,95 +49,87 @@ public class TableData : IResourceType<TableData>
 
         if(version >= 2)
         {
-            stream.WriteBytes(new byte[10]);
-            stream.WriteValueS32(-1);
-            stream.WriteValueS32(0);
-        }
-
-        stream.WriteValueU16((ushort)Columns.Count, endian);
-        stream.WriteValueU32(Unk1, endian);
-        stream.WriteValueU32(Unk2, endian);
-        stream.WriteValueU32((uint)(Data.Length / Rows.Count));
-        stream.WriteValueU32((uint)Rows.Count);
-
-        foreach (Row row in Rows)
-        {
-            for (var index = 0; index < Columns.Count; index++)
+            // TODO is all patched tables need this ? Maybe this need refactor or a better implementation
+            if (Name is "/tables/patch_ja_Pinups.tbl" or "/tables/patch_ja_Pinups_galleries.tbl" or "/tables/patch_ja_vehicles.tbl")
             {
-                row.Values[index].Serialize(stream, endian);
+                stream.WriteBytes(UnkPatch0!);
+                stream.WriteStringU16(UnkPatch1!, endian);
+                stream.WriteBytes(UnkPatch2!);
+            }
+            else
+            {
+                stream.WriteBytes(Unk0!);
             }
         }
 
-        foreach (Column column in Columns)
-        {
-            column.Serialize(stream, endian);
-        }
+        using var dataStream = new MemoryStream(Data);
+        ushort columnsCount = dataStream.ReadValueU16(endian);
+        uint rowsSize = dataStream.ReadValueU32(endian);
+        uint rowsCount = dataStream.ReadValueU32(endian);
+        byte[] data = dataStream.ReadBytes((int)(dataStream.Length - dataStream.Position));
+
+        stream.WriteValueU16(columnsCount, endian);
+        stream.WriteValueU32(Unk1, endian);
+        stream.WriteValueU32(Unk2, endian);
+        stream.WriteValueU32(rowsSize, endian);
+        stream.WriteValueU32(rowsCount, endian);
+        stream.WriteBytes(data);
     }
     
-    public static TableData Deserialize(ushort version, Stream input, Endian endian)
+    public static TableData Deserialize(ushort version, Stream stream, Endian endian)
     {
-        ulong nameHash = input.ReadValueU64(endian); 
-        string name = input.ReadStringU16(endian);
+        ulong nameHash = stream.ReadValueU64(endian); 
+        string name = stream.ReadStringU16(endian);
+
+        byte[]? unkPatch0 = null;
+        string? unkPatch1 = null;
+        byte[]? unkPatch2 = null;
+        byte[]? unk0 = null;
 
         if(version >= 2)
         {
-            input.ReadBytes(18);
-        }
-
-        ushort columnCount = input.ReadValueU16(endian);
-
-        uint unk1 = input.ReadValueU32(endian);
-        uint unk2 = input.ReadValueU32(endian);
-        uint rowSize = input.ReadValueU32(endian);
-        uint rowCount = input.ReadValueU32(endian);
-        MemoryStream stream = input.ReadToMemoryStream((int)(rowSize * rowCount));
-        byte[] data = stream.ReadBytes((int)stream.Length);
-
-        var columns = new List<Column>();
-        
-        for (uint i = 0; i < columnCount; i++)
-        {
-            columns.Add(new Column()
+            // TODO is all patched tables need this ? Maybe this need refactor or a better implementation
+            if (name is "/tables/patch_ja_Pinups.tbl" or "/tables/patch_ja_Pinups_galleries.tbl" or "/tables/patch_ja_vehicles.tbl")
             {
-                NameHash = input.ReadValueU32(endian),
-                Type = (ColumnType)input.ReadValueU8(),
-                Unknown2 = input.ReadValueU8(),
-                Unknown3 = input.ReadValueU16(endian),
-            });
-        }
-
-        var rows = new List<Row>();
-        
-        for (uint i = 0; i < rowCount; i++)
-        {
-            var row = new Row();
-
-            stream.Seek(i * rowSize, SeekOrigin.Begin);
-            
-            foreach (Column column in columns)
-            {
-                if ((byte)column.Type > 163)
-                {
-                    throw new FormatException();
-                }
-
-                object deserializedObject = column.DeserializeType(stream, endian);
-                
-                row.Values.Add((ISerializableTableData)deserializedObject);
+                unkPatch0 = stream.ReadBytes(8); // unknown
+                unkPatch1 = stream.ReadStringU16(endian); // an other name
+                unkPatch2 = stream.ReadBytes(8); // padding ?
             }
-
-            rows.Add(row);
+            else
+            {
+                unk0 = stream.ReadBytes(18);
+            }
         }
 
-        return new TableData()
+        ushort columnsCount = stream.ReadValueU16(endian);
+
+        uint unk1 = stream.ReadValueU32(endian);
+        uint unk2 = stream.ReadValueU32(endian);
+        uint rowsSize = stream.ReadValueU32(endian);
+        uint rowsCount = stream.ReadValueU32(endian);
+
+        var columnsOffset = (uint)(stream.Position + rowsSize * rowsCount);
+        long dataEndOffset = columnsOffset + columnsCount * 8; // Column size is 8 bytes * columns count
+        long dataBytesToRead = dataEndOffset - stream.Position;
+        byte[] data = stream.ReadBytes((int)dataBytesToRead);
+
+        using var dataStream = new MemoryStream();
+        dataStream.WriteValueU16(columnsCount, endian);
+        dataStream.WriteValueU32(rowsSize, endian); // TODO check all methods endian
+        dataStream.WriteValueU32(rowsCount, endian);
+        dataStream.WriteBytes(data);
+
+        return new TableData
         {
+            NameHash = nameHash,
+            Name = name,
+            UnkPatch0 = unkPatch0,
+            UnkPatch1 = unkPatch1,
+            UnkPatch2 = unkPatch2,
+            Unk0 = unk0,
             Unk1 = unk1,
             Unk2 = unk2,
-            Name = name,
-            NameHash = nameHash,
-            Data = data,
-            Rows = rows,
-            Columns = columns
+            Data = dataStream.ToArray()
         };
     }
 

@@ -20,27 +20,23 @@
  *    distribution.
  */
 
-using System.Xml;
-using System.Xml.XPath;
 using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public interface IResourceEntry
 {
-    static abstract string? Read(
-        ResourceEntry entry, 
-        XmlWriter writer,
+    static abstract EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
         string name,
-        string path, 
         Endian endian
     );
 
-    static abstract ResourceEntry Write(
-        ResourceEntry entry, 
-        XPathNodeIterator nodes,
-        XmlNode sourceDataDescriptionNode,
+    static abstract EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
         string path,
         Endian endian
     );

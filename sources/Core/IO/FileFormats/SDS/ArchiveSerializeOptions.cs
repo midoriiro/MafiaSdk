@@ -20,13 +20,12 @@
  *    distribution.
  */
 
-namespace Core.IO.FileFormats.SDS
+namespace Core.IO.FileFormats.SDS;
+
+[Flags]
+public enum ArchiveSerializeOptions
 {
-    [Flags]
-    public enum ArchiveSerializeOptions
-    {
-        None = 0,
-        Compress = 1 << 0,
-        OneBlock = 1 << 1
-    }
+    None = 0,
+    Compress = 1 << 0,
+    OneBlock = 1 << 1
 }

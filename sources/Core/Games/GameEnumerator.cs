@@ -1,11 +1,10 @@
 ﻿
 namespace Core.Games;
 
-public enum GamesEnumerator
+public enum GamesEnumerator : ushort
 {
-    None = 0,
-    Mafia2 = 1,
-    Mafia2DefinitiveEdition = 2,
-    Mafia3 = 3,
-    Mafia1DefinitiveEdition = 4
+    Mafia1DefinitiveEdition,
+    Mafia2,
+    Mafia2DefinitiveEdition,
+    Mafia3
 }

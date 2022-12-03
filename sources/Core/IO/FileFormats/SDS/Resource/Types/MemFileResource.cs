@@ -24,6 +24,7 @@
 //SEE ORIGINAL CODE HERE::
 //https://github.com/gibbed/Gibbed.Illusion
 
+using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
@@ -34,9 +35,10 @@ public class MemFileResource : IResourceType<MemFileResource>
     public string Name { get; set; } = null!;
     public uint Unk1 { get; set; }
     public uint Unk2V4 { get; set; }
+    [IgnoreFieldDescriptor]
     public byte[] Data { get; set; } = null!;
 
-    internal MemFileResource()
+    private MemFileResource()
     {
     }
 
@@ -86,7 +88,7 @@ public class MemFileResource : IResourceType<MemFileResource>
         uint size = stream.ReadValueU32(endian);
         byte[] data = stream.ReadBytes((int)size);
 
-        return new MemFileResource()
+        return new MemFileResource
         {
             Unk0V4 = unk0V4,
             Unk2V4 = unk2V4,

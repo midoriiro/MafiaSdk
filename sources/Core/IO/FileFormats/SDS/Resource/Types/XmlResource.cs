@@ -20,10 +20,7 @@
  *    distribution.
  */
 
-//THIS VERSION IS MODIFIED.
-//SEE ORIGINAL CODE HERE::
-//https://github.com/gibbed/Gibbed.Illusion
-
+using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
@@ -31,13 +28,13 @@ namespace Core.IO.FileFormats.SDS.Resource.Types;
 public class XmlResource : IResourceType<XmlResource>
 {
     public string Tag { get; set; } = null!;
-    public bool Unk1 { get; set; }
+    public byte? Unk0 { get; set; }
     public string Name { get; set; } = null!;
-    public bool Unk3 { get; set; }
-    public string Content { get; set; } = null!;
-    public bool HasFailedToDecompile { get; set; }
+    public byte? Unk1 { get; set; }
+    [IgnoreFieldDescriptor]
+    public byte[] Data { get; set; } = null!;
 
-    internal XmlResource()
+    private XmlResource()
     {
     }
 
@@ -47,73 +44,42 @@ public class XmlResource : IResourceType<XmlResource>
 
         if (version >= 3)
         {
-            stream.WriteValueU8((byte)(Unk1 ? 1 : 0));
+            stream.WriteValueU8(Unk0!.Value);
         }
 
         stream.WriteStringU32(Name, endian);
 
         if (version >= 2)
         {
-            stream.WriteValueU8((byte)(Unk3 ? 1 : 0));
+            stream.WriteValueU8(Unk1!.Value);
         }
+        
+        using var dataStream = new MemoryStream(Data);
+        dataStream.ReadByte();
+        byte[] data = dataStream.ReadBytes((int)(dataStream.Length - dataStream.Position));
 
-        if (Unk3 == false)
-        {
-            if (!HasFailedToDecompile)
-            {
-                XmlResource0.Serialize(stream, Content, endian);
-            }
-            else
-            {
-                byte[] data = File.ReadAllBytes(Content);
-                stream.WriteBytes(data);
-            }
-        }
-        else
-        {
-            XmlResource1.Serialize(stream, Content, endian);
-        }
+        stream.WriteBytes(data);
     }
 
     public static XmlResource Deserialize(ushort version, Stream stream, Endian endian)
     {
         string tag = stream.ReadStringU32(endian);
-        bool unk1 = version >= 3 ? stream.ReadValueU8() != 0 : true;
+        byte? unk0 = version >= 3 ? stream.ReadValueU8() : null;
         string name = stream.ReadStringU32(endian);
-        bool unk3 = version >= 2 ? stream.ReadValueU8() != 0 : false;
+        byte? unk1 = version >= 2 ? stream.ReadValueU8() : null;
+        byte[] data = stream.ReadBytes((int)(stream.Length - stream.Position));
+        
+        using var dataStream = new MemoryStream();
+        dataStream.WriteByte((byte)(unk1.HasValue ? unk1.Value != 0 ? 1 : 0 : 0));
+        dataStream.WriteBytes(data);
 
-        string content = null!;
-        var hasFailedToDecompile = false;
-
-        // Super hacky solution to unpack XMLs with xml:xsi etc.
-        if (unk3 == false)
-        {
-            long currentPosition = stream.Position;
-
-            try
-            {
-                content = XmlResource0.Deserialize(stream, endian);
-            }
-            catch (Exception exception)
-            {
-                stream.Position = currentPosition;
-                // Console.WriteLine(ex.Message); // TODO throw exception
-                hasFailedToDecompile = true;
-            }
-        }
-        else
-        {
-            content = XmlResource1.Deserialize(stream, endian);
-        }
-
-        return new XmlResource()
+        return new XmlResource
         {
             Tag = tag,
-            Unk1 = unk1,
+            Unk0 = unk0,
             Name = name,
-            Unk3 = unk3,
-            Content = content,
-            HasFailedToDecompile = hasFailedToDecompile
+            Unk1 = unk1,
+            Data = dataStream.ToArray()
         };
     }
 }

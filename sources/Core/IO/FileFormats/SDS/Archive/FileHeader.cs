@@ -22,49 +22,60 @@
 
 using Core.IO.Streams;
 
-namespace Core.IO.FileFormats.SDS.Archive
+namespace Core.IO.FileFormats.SDS.Archive;
+
+public readonly struct FileHeader
 {
-    public struct FileHeader
+    public uint ResourceTypeTableOffset { get; init; }
+    public uint BlockTableOffset { get; init; }
+    public uint XmlOffset { get; init; }
+    public uint SlotRamRequired { get; init; }
+    public uint SlotVramRequired { get; init; }
+    public uint OtherRamRequired { get; init; }
+    public uint OtherVramRequired { get; init; }
+    public uint Flags { get; init; }
+    public byte[] Unknown20 { get; init; }
+    public uint ResourceCount { get; init; }
+
+    public static FileHeader Read(Stream input, Endian endian)
     {
-        public uint ResourceTypeTableOffset;
-        public uint BlockTableOffset;
-        public uint XmlOffset;
-        public uint SlotRamRequired;
-        public uint SlotVramRequired;
-        public uint OtherRamRequired;
-        public uint OtherVramRequired;
-        public uint Flags;
-        public byte[] Unknown20;
-        public uint ResourceCount;
+        uint resourceTypeTableOffset = input.ReadValueU32(endian);
+        uint blockTableOffset = input.ReadValueU32(endian);
+        uint xmlOffset = input.ReadValueU32(endian);
+        uint slotRamRequired = input.ReadValueU32(endian);
+        uint slotVramRequired = input.ReadValueU32(endian);
+        uint otherRamRequired = input.ReadValueU32(endian);
+        uint otherVramRequired = input.ReadValueU32(endian);
+        uint flags = input.ReadValueU32(endian);
+        byte[] unknown20 = input.ReadBytes(16);
+        uint resourceCount = input.ReadValueU32(endian);
 
-        public void Write(Stream output, Endian endian)
+        return new FileHeader
         {
-            output.WriteValueU32(ResourceTypeTableOffset, endian);
-            output.WriteValueU32(BlockTableOffset, endian);
-            output.WriteValueU32(XmlOffset, endian);
-            output.WriteValueU32(SlotRamRequired, endian);
-            output.WriteValueU32(SlotVramRequired, endian);
-            output.WriteValueU32(OtherRamRequired, endian);
-            output.WriteValueU32(OtherVramRequired, endian);
-            output.WriteValueU32(Flags, endian);
-            output.Write(Unknown20, 0, Unknown20.Length);
-            output.WriteValueU32(ResourceCount, endian);
-        }
+            ResourceTypeTableOffset = resourceTypeTableOffset,
+            BlockTableOffset = blockTableOffset,
+            XmlOffset = xmlOffset,
+            SlotRamRequired = slotRamRequired,
+            SlotVramRequired = slotVramRequired,
+            OtherRamRequired = otherRamRequired,
+            OtherVramRequired = otherVramRequired,
+            Flags = flags,
+            Unknown20 = unknown20,
+            ResourceCount = resourceCount
+        };
+    }
 
-        public static FileHeader Read(Stream input, Endian endian)
-        {
-            FileHeader instance;
-            instance.ResourceTypeTableOffset = input.ReadValueU32(endian);
-            instance.BlockTableOffset = input.ReadValueU32(endian);
-            instance.XmlOffset = input.ReadValueU32(endian);
-            instance.SlotRamRequired = input.ReadValueU32(endian);
-            instance.SlotVramRequired = input.ReadValueU32(endian);
-            instance.OtherRamRequired = input.ReadValueU32(endian);
-            instance.OtherVramRequired = input.ReadValueU32(endian);
-            instance.Flags = input.ReadValueU32(endian);
-            instance.Unknown20 = input.ReadBytes(16);
-            instance.ResourceCount = input.ReadValueU32(endian);
-            return instance;
-        }
+    public void Write(Stream output, Endian endian)
+    {
+        output.WriteValueU32(ResourceTypeTableOffset, endian);
+        output.WriteValueU32(BlockTableOffset, endian);
+        output.WriteValueU32(XmlOffset, endian);
+        output.WriteValueU32(SlotRamRequired, endian);
+        output.WriteValueU32(SlotVramRequired, endian);
+        output.WriteValueU32(OtherRamRequired, endian);
+        output.WriteValueU32(OtherVramRequired, endian);
+        output.WriteValueU32(Flags, endian);
+        output.Write(Unknown20, 0, Unknown20.Length);
+        output.WriteValueU32(ResourceCount, endian);
     }
 }

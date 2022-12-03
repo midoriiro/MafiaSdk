@@ -2,9 +2,10 @@
 
 //THIS ISN'T GIBBED. BUT STILL USES GIBBED STUFF :)
 
-using System.Xml;
-using System.Xml.XPath;
 using Core.IO.FileFormats.SDS.Archive;
+using Core.IO.FileFormats.SDS.Resource.Entries.Extensions;
+using Core.IO.FileFormats.SDS.Resource.Manifest;
+using Core.IO.FileFormats.SDS.Resource.Results;
 using Core.IO.FileFormats.SDS.Resource.Types;
 using Core.IO.Streams;
 
@@ -12,74 +13,64 @@ namespace Core.IO.FileFormats.SDS.Resource.Entries;
 
 public class SoundEntry : IResourceEntry
 {
-    public static string Read(
-        ResourceEntry entry, 
-        XmlWriter writer, 
-        string name, 
-        string path, 
+    public static EntryDeserializeResult Deserialize(
+        ResourceEntry resourceEntry,
+        string name,
         Endian endian
     )
     {
-        // Create and deserialize the data.
         SoundResource resource;
 
-        using (var stream = new MemoryStream(entry.Data!))
+        using (var stream = new MemoryStream(resourceEntry.Data!))
         {
-            resource = SoundResource.Deserialize(entry.Version, stream, endian);
+            resource = SoundResource.Deserialize(resourceEntry.Version, stream, endian);
         }
+        
+        name += ".fsb";
 
-        entry.Data = resource.Data;
+        ManifestEntryDescriptors resourceDescriptors = ManifestEntryDescriptors.FromResource(resource);
+        resourceDescriptors.AddFileName(name);
 
-        // Create directories and then write the XML to finish it off.
-        string fileName = name + ".fsb";
-        string resourcePath = Path.Join(path, name);
-        Directory.CreateDirectory(Path.GetDirectoryName(resourcePath)!);
-
-        writer.WriteElementString("File", fileName);
-
-        return fileName;
+        return new EntryDeserializeResult
+        {
+            ManifestEntryDescriptors = resourceDescriptors,
+            DataDescriptors = new[] { new DataDescriptor(name, resource.Data) }
+        };
     }
 
-    public static ResourceEntry Write(
-        ResourceEntry entry, 
-        XPathNodeIterator nodes, 
-        XmlNode sourceDataDescriptionNode,
-        string path, 
+    public static EntrySerializeResult Serialize(
+        ManifestEntry manifestEntry,
+        string path,
         Endian endian
     )
     {
-        if (nodes.Current is null)
-        {
-            throw new NullReferenceException("Current node from node iterator is null");
-        }
+        var resource = manifestEntry.Descriptors.ToResource<SoundResource>();
+        string filename = manifestEntry.Descriptors.GetFilename()!;
+        ushort version = manifestEntry.MetaData.Version;
         
-        nodes.Current.MoveToNext();
-        string file = nodes.Current.Value.Remove(nodes.Current.Value.Length - 4, 4);
+        string pathToRead = Path.Join(path, filename);
+        resource.Data = File.ReadAllBytes(pathToRead);
+        resource.FileSize = resource.Data.Length;
 
-        // Combine path and add extension.
-        string pathToRead = Path.Join(path, file);
-        pathToRead += ".fsb";
-
-        // Get the Version and set the inner text (meta XML).
-        nodes.Current.MoveToNext();
-        entry.Version = Convert.ToUInt16(nodes.Current.Value);
-        sourceDataDescriptionNode.InnerText = file;
-
-        using var stream = new MemoryStream();
-        byte[] fileData = File.ReadAllBytes(pathToRead);
-        var resource = new SoundResource
+        var resourceEntry = new ResourceEntry
         {
-            Name = file,
-            Data = fileData,
-            FileSize = fileData.Length
+            Version = manifestEntry.MetaData.Version,
+            TypeId = manifestEntry.MetaData.Type.Id,
+            FileHash = manifestEntry.MetaData.FileHash, // TODO compute that
+            SlotRamRequired = manifestEntry.MetaData.SlotRamRequired, // TODO find correct value
+            SlotVramRequired = (uint)resource.FileSize
         };
 
-        resource.Serialize(entry.Version, stream, endian);
+        using (var stream = new MemoryStream())
+        {
+            resource.Serialize(version, stream, endian);
+            resourceEntry.Data = stream.ToArray();
+        }
 
-        // Fill the remaining data for the entry.
-        entry.SlotRamRequired = 40;
-        entry.SlotVramRequired = (uint)resource.FileSize;
-        entry.Data = stream.ToArray();
-        return entry;
+        return new EntrySerializeResult
+        {
+            DataDescriptor = filename.RemoveExtension(),
+            ResourceEntry = resourceEntry
+        };
     }
 }

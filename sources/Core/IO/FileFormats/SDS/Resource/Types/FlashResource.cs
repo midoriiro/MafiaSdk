@@ -1,4 +1,6 @@
-﻿using Core.IO.Streams;
+﻿using Core.IO.FileFormats.Hashing;
+using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
+using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
 
@@ -8,18 +10,19 @@ public class FlashResource : IResourceType<FlashResource>
     public ulong Hash { get; set; }
     public string Name { get; set; } = null!;
     public uint Size { get; set; }
+    [IgnoreFieldDescriptor]
     public byte[] Data { get; set; } = null!;
 
-    internal FlashResource()
+    private FlashResource()
     {
     }
 
     public void Serialize(ushort version, Stream stream, Endian endian)
     {
         stream.WriteStringU16(FileName, endian);
-        stream.WriteValueU64(FileFormats.Hashing.FNV64.Hash(Name), endian);
+        stream.WriteValueU64(Fnv64.Hash(Name), endian);
         stream.WriteStringU16(Name, endian);
-        stream.WriteValueS32(Data.Length, endian);
+        stream.WriteValueS32(Data.Length, endian); // TODO check endian if present on all read/write statements
         stream.WriteBytes(Data);
     }
         
@@ -31,7 +34,7 @@ public class FlashResource : IResourceType<FlashResource>
         uint size = stream.ReadValueU32(endian);
         byte[] data = stream.ReadBytes((int)size);
 
-        return new FlashResource()
+        return new FlashResource
         {
             FileName = fileName,
             Hash = hash,

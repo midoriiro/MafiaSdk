@@ -20,18 +20,21 @@
  *    distribution.
  */
 
+using Core.IO.FileFormats.Hashing;
+using Core.IO.FileFormats.SDS.Resource.Manifest.Attributes;
 using Core.IO.Streams;
 
 namespace Core.IO.FileFormats.SDS.Resource.Types;
 
 public class ScriptData : IResourceType<ScriptData>
 {
-    public ulong NameHash { get; set; }
-    public ulong DataHash { get; set; }
+    public ulong? NameHash { get; set; }
+    public ulong? DataHash { get; set; }
     public string Name { get; set; } = null!;
+    [IgnoreFieldDescriptor]
     public byte[] Data { get; set; } = null!;
 
-    internal ScriptData()
+    private ScriptData()
     {
     }
 
@@ -39,10 +42,10 @@ public class ScriptData : IResourceType<ScriptData>
     {
         if (version >= 2)
         {
-            NameHash = FileFormats.Hashing.FNV64.Hash(Name);
-            DataHash = FileFormats.Hashing.FNV64.Hash(Data, 0, Data.Length);
-            stream.WriteValueU64(NameHash, endian);
-            stream.WriteValueU64(DataHash, endian);
+            NameHash = Fnv64.Hash(Name);
+            DataHash = Fnv64.Hash(Data, 0, Data.Length);
+            stream.WriteValueU64(NameHash.Value, endian);
+            stream.WriteValueU64(DataHash.Value, endian);
         }
 
         stream.WriteStringU16(Name, endian);
@@ -52,8 +55,8 @@ public class ScriptData : IResourceType<ScriptData>
 
     public static ScriptData Deserialize(ushort version, Stream stream, Endian endian)
     {
-        ulong nameHash = 0;
-        ulong dataHash = 0;
+        ulong? nameHash = null;
+        ulong? dataHash = null;
         
         if (version >= 2)
         {
@@ -65,7 +68,7 @@ public class ScriptData : IResourceType<ScriptData>
         uint size = stream.ReadValueU32(endian);
         byte[] data = stream.ReadBytes((int)size);
 
-        return new ScriptData()
+        return new ScriptData
         {
             NameHash = nameHash,
             DataHash = dataHash,
