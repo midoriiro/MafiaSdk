@@ -188,5 +188,12 @@ public class ArchiveFileTest
         {
             throw new InvalidDataException();
         }
+        
+        archiveFileForSerialization.Serialize(outputStream, ArchiveSerializeOptions.None);
+
+        if (StreamComparatorHelpers.CompareData(inputStream, outputStream))
+        {
+            throw new InvalidDataException();
+        }
     }
 }

@@ -9,17 +9,17 @@ namespace Core.Tests.Utils;
 
 public class StreamComparatorHelpers
 {
-    private static void CompareData(Stream inputStream, Stream outputStream)
+    public static bool CompareData(Stream inputStream, Stream outputStream)
     {
         inputStream.Position = 0;
         outputStream.Position = 0;
         byte[] inputData = inputStream.ReadBytes((int)inputStream.Length);
         byte[] outputData = outputStream.ReadBytes((int)outputStream.Length);
         
-        // if (inputData.Length != outputData.Length)
-        // {
-        //     throw new InvalidDataException();
-        // }
+        if (inputData.Length != outputData.Length)
+        {
+            return false;
+        }
 
         for (var x = 0; x < inputData.Length; x++)
         {
@@ -28,38 +28,18 @@ public class StreamComparatorHelpers
 
             if (inputByte != outputByte)
             {
-                throw new InvalidDataException();
+                return false;
             }
         }
         
         byte[] hashInput = SHA512.HashData(inputStream);
         byte[] hashOutput = SHA512.HashData(outputStream);
-                
-        Assert.Equal(hashInput, hashOutput);
-    }
-    
-    public static void Compare(
-        FileInfo fileInfo,
-        Action<Stream> inputAction,
-        Action<Stream> outputAction
-    )
-    {
-        FileStream fileStream = File.Open(fileInfo.FullName, FileMode.Open);
-        var inputStream = new MemoryStream(fileStream.ReadBytes((int)fileStream.Length));
 
-        inputAction(inputStream);
-
-        var outputStream = new MemoryStream();
-        outputAction(outputStream);
-
-        try
+        if (hashInput != hashOutput)
         {
-            CompareData(inputStream, outputStream);
+            return false;
         }
-        finally
-        {
-            inputStream.Dispose();
-            outputStream.Dispose();
-        }
+
+        return true;
     }
 }
